@@ -1,0 +1,159 @@
+:root {
+  --bg: #14161a;
+  --panel: #1e2126;
+  --text: #e8e8ea;
+  --muted: #9a9fa8;
+  --accent: #5b8dee;
+  --danger: #e05b5b;
+  --ok: #4caf7d;
+  --border: #2c3038;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 15px;
+}
+
+#tabs {
+  display: flex;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  z-index: 10;
+}
+#tabs button {
+  flex: 1;
+  min-width: 90px;
+  padding: 14px 8px;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 15px;
+  cursor: pointer;
+}
+#tabs button.active {
+  color: var(--text);
+  border-bottom: 2px solid var(--accent);
+}
+
+main { padding: 12px; max-width: 900px; margin: 0 auto; }
+.tab { display: none; }
+.tab.active { display: block; }
+
+h2 { font-size: 18px; margin: 8px 0 12px; }
+h3 { font-size: 14px; color: var(--muted); margin: 20px 0 8px; }
+
+input[type=text] {
+  width: 100%;
+  padding: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 15px;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+.card .path { font-size: 12px; color: var(--muted); word-break: break-all; }
+
+button {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 14px;
+  cursor: pointer;
+}
+button.secondary { background: #3a3f47; }
+button.danger { background: var(--danger); }
+button:disabled { opacity: .5; cursor: default; }
+
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.row > * { margin-top: 6px; }
+
+.candidate {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  margin: 8px 0;
+  cursor: pointer;
+}
+.candidate.focused { border-color: var(--accent); background: #202535; }
+.candidate .dist { color: var(--muted); font-size: 12px; }
+
+.art-compare { display: flex; gap: 10px; margin-top: 8px; }
+.art-compare img {
+  width: 90px; height: 90px; object-fit: cover; border-radius: 6px; background: #000;
+}
+.art-badge { font-size: 12px; padding: 2px 8px; border-radius: 10px; }
+.art-badge.match { background: var(--ok); }
+.art-badge.mismatch { background: var(--danger); }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+}
+.album-tile {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  position: relative;
+}
+.album-tile img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; background: #000; }
+.album-tile .meta { padding: 6px 8px; font-size: 12px; }
+.album-tile .lib-badge {
+  position: absolute; top: 6px; left: 6px;
+  background: rgba(0,0,0,.7); color: #fff; font-size: 10px;
+  padding: 2px 6px; border-radius: 6px;
+}
+.album-tile input[type=checkbox] {
+  position: absolute; top: 6px; right: 6px; width: 20px; height: 20px;
+}
+
+.tag-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: #2a3040; border-radius: 14px; padding: 4px 10px;
+  margin: 3px; font-size: 13px; cursor: grab;
+}
+.tag-chip button { background: none; padding: 0; color: var(--muted); font-size: 14px; }
+
+.grabbable { touch-action: none; }
+.long-press-menu {
+  position: fixed; z-index: 50; background: var(--panel);
+  border: 1px solid var(--border); border-radius: 8px; padding: 6px;
+  box-shadow: 0 4px 20px rgba(0,0,0,.4);
+}
+.long-press-menu button { display: block; width: 100%; text-align: left; background: none; color: var(--text); margin: 2px 0; }
+.long-press-menu button:hover { background: #2a2f38; }
+
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,.6);
+  display: flex; align-items: flex-end; justify-content: center; z-index: 40;
+}
+.modal {
+  background: var(--panel); border-radius: 14px 14px 0 0; padding: 16px;
+  width: 100%; max-width: 640px; max-height: 85vh; overflow-y: auto;
+}
+@media (min-width: 700px) {
+  .modal-backdrop { align-items: center; }
+  .modal { border-radius: 14px; }
+}
+
+.timer { font-size: 12px; color: var(--muted); }

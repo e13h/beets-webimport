@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>beets-webimport</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <nav id="tabs">
+    <button data-tab="inbox" class="active">Inbox</button>
+    <button data-tab="undo">Undo</button>
+    <button data-tab="library">Library</button>
+    <button data-tab="tags">Tags</button>
+  </nav>
+
+  <main id="app">
+    <section id="tab-inbox" class="tab active">
+      <h2>Inbox</h2>
+      <div id="inbox-dirs"></div>
+      <h3>Pending review</h3>
+      <div id="pending-reviews"></div>
+    </section>
+
+    <section id="tab-undo" class="tab">
+      <h2>Recent imports (undoable)</h2>
+      <div id="undo-list"></div>
+    </section>
+
+    <section id="tab-library" class="tab">
+      <h2>Library</h2>
+      <input id="lib-search" type="text" placeholder="Search albums (beets query syntax)…" />
+      <div id="bulk-bar" hidden>
+        <span id="bulk-count"></span>
+        <select id="bulk-field-value"></select>
+        <button id="bulk-apply">Set navidrome_library on selected</button>
+      </div>
+      <div id="album-grid"></div>
+    </section>
+
+    <section id="tab-tags" class="tab">
+      <h2>Tag vocabulary</h2>
+      <div id="tag-fields"></div>
+    </section>
+  </main>
+
+  <div id="modal-root"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

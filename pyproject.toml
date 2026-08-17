@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "beets-webimport"
+version = "0.1.0"
+description = "A native beets plugin providing a fast, mobile-friendly web UI for import review, library browsing, tagging, and multi-library routing."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "beets>=2.0.0",
+    "flask>=3.0.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+include = ["beetsplug*"]
+
+[tool.setuptools.package-data]
+"beetsplug.webimport" = ["static/**/*"]
