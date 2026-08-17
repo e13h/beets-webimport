@@ -51,11 +51,13 @@ polished final product. Notably:
   React app — functional on desktop and mobile via CSS, but touch
   drag-and-drop is implemented with a simple long-press + "move to" menu
   rather than fully custom gesture handling. Treat as a base to refine.
-- Cover-art "resolved" preview calls fetchart's own candidate-scoring
-  logic against a temp copy of the files rather than a full dry-run of
-  the entire plugin pipeline — accurate for source selection and
-  resolution/ratio filtering, but doesn't execute embedart's actual file
-  write.
+- Cover-art "resolved" preview mirrors fetchart's source-priority order
+  and queries the Cover Art Archive via the same JSON API fetchart uses
+  (picking the first Front image), so the preview matches what an import
+  would embed. It previews the `filesystem` and `coverart` (CAA) sources
+  only; other remote sources (itunes, amazon, ...) are honored in the
+  ordering but not fetched for preview, and embedart's actual file write
+  isn't executed during preview.
 - Duplicate resolution (`resolve_duplicate`) is implemented but the UI
   for it is intentionally minimal (keep / remove-old / skip) — extend as
   needed.

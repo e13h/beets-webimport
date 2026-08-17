@@ -94,27 +94,45 @@ flowing correctly into the undo list:
   been removed. If a future beets version changes this, `server.py`'s
   `create_app()` is the only place it's used.
 
-**NOT yet tested — highest risk areas to check first:**
+**Now verified end-to-end (2026-08-16, beets 2.13.1, real MB + CAA):**
+Driven via HTTP against a live `ImportSession.run()` using the harnesses
+in `scripts/` (see `scripts/README.md`). A disposable library lives at
+`.config/library.db` + `.library/`, config at `.config/config.yaml`.
 
-1. **A real inbox import end-to-end** against actual ripped audio files:
-   does `choose_match` actually block/resume correctly when driven by a
-   real `ImportSession.run()` (not the isolated unit tests done so
-   far)? Does the apply-lock serialization behave under real concurrent
-   album reviews? This is the core value proposition of the whole
-   project and hasn't been exercised with real files yet.
-2. **Cover art resolution** (`coverart.py`) against real Cover Art
-   Archive responses — only structurally reviewed, not run against a
-   live MBID. Also: this re-implements fetchart's source-priority logic
-   rather than driving the real fetchart plugin object, so it will
-   silently drift if fetchart's config options change (see README
-   "Known simplifications").
-3. **Reimport flow** (`reimport.py`) — the temporary
+- **Real inbox import end-to-end** (`scripts/drive_import.py`):
+  `choose_match` blocks and resumes correctly on a real run; forcing a
+  search_id (`-S <mbid>`) re-review works; `select` applies; copy-mode
+  places files under the path template; `set_fields`
+  (`navidrome_library=unassigned`) is applied; fetchart+embedart fetch
+  and embed `cover.jpg`; and the real `album_imported` event registers
+  the grace-period undo record.
+- **Grace-period undo** (`scripts/drive_undo.py`): ID-scoped
+  `remove(delete=True)` wipes DB row + files, inbox originals untouched.
+- **Parallel review + serial apply + duplicates**
+  (`scripts/drive_concurrency.py`): two albums submitted at once are
+  reviewed in parallel; applies serialize without leaving the apply_lock
+  stuck; a duplicate second copy triggers the duplicate prompt and
+  "skip" leaves exactly one album.
+- **Cover-art preview** (`coverart.py`, `scripts/drive_art.py`): now
+  uses the CAA JSON API like fetchart (was the fragile `/front`
+  redirect), recognizes fetchart's real source ids (`coverart`, not the
+  old `coverart:release` guess — this was a real bug that silently
+  resolved nothing under Evan's actual config), retries transient CAA
+  5xx, and prefers a 500px thumbnail. Returns `match: True` against the
+  target release.
+
+**Config note:** `plugins:` in config.yaml *replaces* the default
+`[musicbrainz]`, so metadata source, fetchart, and embedart must all be
+listed explicitly or lookups/art silently do nothing. `.config/config.yaml`
+now lists `musicbrainz, fetchart, embedart, webimport`.
+
+**Still NOT tested — remaining risk areas:**
+
+1. **Reimport flow** (`reimport.py`) — the temporary
    `config["import"]["from_scratch"]`/`set_fields` override pattern is
    logically sound (reuses beets' real apply-time logic) but has not
    been run against a real reimport.
-4. **Duplicate resolution UI** — wired end-to-end at the API level, but
-   never triggered against an actual duplicate in a real library.
-5. **Manual file-grouping** (`/api/inbox/group`) — implemented via
+2. **Manual file-grouping** (`/api/inbox/group`) — implemented via
    staging bins into subdirectories rather than constructing
    `ImportTask`/`SingletonImportTask` objects directly in-process (see
    docstring in `server.py`). This was a deliberate scope-reduction, not
@@ -122,11 +140,11 @@ flowing correctly into the undo list:
    per-bin folders) than a fully in-memory task-construction approach
    would be. Revisit if the staging-directory approach proves clunky in
    practice.
-6. **Thumbnail caching** for the library grid — PRD wants resized/cached
+3. **Thumbnail caching** for the library grid — PRD wants resized/cached
    thumbnails; current implementation serves `artpath` directly with no
    resizing/caching layer. Fine for ~800 albums but should be added
    before assuming it'll stay fast.
-7. **Mobile touch interactions** — long-press-to-menu is implemented in
+4. **Mobile touch interactions** — long-press-to-menu is implemented in
    `app.js` (`attachLongPress`) as the touch equivalent of drag-and-drop
    per the PRD, but has not been tested on an actual touch device, only
    read for logical correctness.
@@ -134,32 +152,31 @@ flowing correctly into the undo list:
 ## Known simplifications (intentional, see README.md in the repo)
 
 - Frontend is vanilla JS, not React — functional, not polished.
-- Cover art "resolved" preview approximates fetchart rather than
-  invoking the real plugin object end-to-end.
+- Cover art "resolved" preview approximates fetchart (same CAA JSON API
+  + source-priority order, but only previews the filesystem + Cover Art
+  Archive sources; other remote sources like itunes/amazon are honored
+  in ordering but not fetched for preview) rather than invoking the real
+  plugin object end-to-end.
 - No persistence of in-flight review state across a plugin restart
   (explicitly requested — simpler implementation was prioritized over
   crash-resilience).
 
 ## Suggested next steps, in order
 
-1. Set up a real (small, disposable) beets library + inbox directory
-   with actual ripped albums and run `beet webimport` for real — this
-   will surface far more issues than unit-level testing can. Start here
-   before adding any new features.
-2. Watch specifically for: whether `WebImportSession.run()` truly
-   blocks/resumes per-task as expected when multiple albums are
-   submitted concurrently (validates the core parallel-review/serial-
-   apply design); whether the apply_lock is ever left stuck (e.g. an
-   exception during apply that skips the `finally: release()` path is
-   the most concerning failure mode — check `server.py::_run_album_import`
-   and `reimport.py::run_reimport`, both currently wrap `session.run()`
-   in `try/finally`, but a full concurrency stress test hasn't been
-   done).
-3. Once basic import works, layer in cover art resolution testing
-   against real MBIDs, then reimport, then duplicate handling.
-4. Add the thumbnail caching layer for the library grid before treating
+1. ~~Real inbox import end-to-end.~~ **Done** — see "Now verified
+   end-to-end" above and `scripts/`. Import, undo, parallel review,
+   serial apply, and duplicate resolution all exercised against real
+   files + MusicBrainz + Cover Art Archive.
+2. **Reimport** is the biggest untested path now — drive
+   `POST /api/reimport` against the applied Mulan album (e.g. with
+   `from_scratch: true` and `set_fields: {navidrome_library: kids}`) and
+   confirm the temporary-config override restores cleanly and the
+   grace/undo + apply_lock behave as in a fresh import. A
+   `scripts/drive_reimport.py` following the same pattern as the other
+   drivers would close this loop.
+3. Add the thumbnail caching layer for the library grid before treating
    the library-browse tab as done.
-5. Revisit the manual-grouping UX (item 5 above) once you've tried it —
+4. Revisit the manual-grouping UX once you've tried it —
    it's the part of the PRD I'm least confident matches Evan's actual
    mental model of "drag files into bins," since it's currently
    filesystem-staging rather than a true in-memory task-splitting UI.

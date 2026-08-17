@@ -217,6 +217,11 @@ async function loadArtCompare(candidateEl, pr, candidate) {
         release_group_mbid: null,
       }),
     });
+    if (result.unavailable && !result.source_url && !result.resolved_url) {
+      holder.innerHTML =
+        '<span class="timer">art service unavailable — try again</span>';
+      return;
+    }
     holder.innerHTML = `
       ${result.source_url ? `<img src="${result.source_url}" alt="source" />` : "<span>no source art</span>"}
       ${result.resolved_url ? `<img src="${result.resolved_url}" alt="resolved" />` : "<span>no resolved art</span>"}

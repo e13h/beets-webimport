@@ -1,10 +1,24 @@
+directory: /Users/evansmith/repos/beets-web-import/.library
+library: /Users/evansmith/repos/beets-web-import/.config/library.db
+
+import:
+  copy: yes
+  move: no
+  write: yes
+  duplicate_action: ask
+  set_fields:
+    navidrome_library: unassigned
+
 plugins:
+  - musicbrainz
+  - fetchart
+  - embedart
   - webimport
 
 webimport:
   host: 0.0.0.0
   port: 8338
   grace_period_seconds: 600
-  inbox_dir: /Users/evansmith/repos/beets-web-import/.inbox  # TODO
+  inbox_dir: /Users/evansmith/repos/beets-web-import/.inbox
   tag_fields:
     - mood
