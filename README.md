@@ -34,12 +34,21 @@ webimport:
   inbox_dir: /inbox/preview
   tag_fields:
     - mood
+  debug: false  # set true for Flask debug mode + auto-reload on code changes
 ```
 
 Run it:
 
 ```bash
 beet webimport
+```
+
+For development, enable debug mode (Flask's debugger + the Werkzeug
+auto-reloader, which restarts the server whenever plugin source files
+change) either via config (`webimport.debug: true`) or a one-off flag:
+
+```bash
+beet webimport --debug
 ```
 
 ## Status / known simplifications

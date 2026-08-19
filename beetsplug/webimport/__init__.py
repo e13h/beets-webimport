@@ -30,6 +30,7 @@ class WebImportPlugin(BeetsPlugin):
                 "tag_fields": ["mood"],
                 "candidate_search_workers": 4,
                 "thumbnail_cache_dir": "",  # falls back to beets config dir
+                "debug": False,  # enables Flask debug mode + the reloader
             }
         )
 
@@ -51,6 +52,13 @@ class WebImportPlugin(BeetsPlugin):
             type="int",
             help="port to bind (default from config)",
         )
+        cmd.parser.add_option(
+            "--debug",
+            dest="debug",
+            action="store_true",
+            default=None,
+            help="enable Flask debug mode + auto-reload (default from config)",
+        )
         return [cmd]
 
     def _run(self, lib, opts, args):
@@ -61,7 +69,16 @@ class WebImportPlugin(BeetsPlugin):
 
         host = opts.host or self.config["host"].get(str)
         port = opts.port or self.config["port"].get(int)
+        debug = opts.debug if opts.debug is not None else self.config["debug"].get(bool)
 
         app = create_app(lib, self.config, self)
-        log.info("beets-webimport serving on http://%s:%s", host, port)
-        app.run(host=host, port=port, threaded=True)
+        log.info(
+            "beets-webimport serving on http://%s:%s%s",
+            host,
+            port,
+            " (debug/reload enabled)" if debug else "",
+        )
+        # threaded=True is needed regardless of debug mode: the UI polls
+        # several endpoints concurrently while background worker threads
+        # (InboxWorkerPool, grace period, etc.) are also running.
+        app.run(host=host, port=port, debug=debug, use_reloader=debug, threaded=True)
