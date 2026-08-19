@@ -1,3 +1,7 @@
 .inbox/
 *.egg-info
 __pycache__/
+*.db*
+*.pickle
+.config/webimport/
+.library/

@@ -22,3 +22,15 @@ webimport:
   inbox_dir: /Users/evansmith/repos/beets-web-import/.inbox
   tag_fields:
     - mood
+
+musicbrainz:
+  external_ids:
+    discogs: yes
+    bandcamp: yes
+    spotify: yes
+    deezer: yes
+    beatport: yes
+    tidal: yes
+  search_limit: 2
+  extra_tags: [alias, barcode, country, label, media, tracks, year]
+  genres: yes
