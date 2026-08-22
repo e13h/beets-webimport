@@ -13,3 +13,7 @@ Default five-role vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `
 ### Domain docs
 
 Single-context: `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+### Dev environment & beets API notes
+
+Local setup, gotchas, and verified beets 2.13.1 API facts. See `docs/agents/dev-environment.md`.
