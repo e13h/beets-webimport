@@ -14,7 +14,9 @@ web UI for:
   variable
 - Reimport UI (`-L -S <mbid> --from-scratch --set field=value` equivalent)
 
-See `docs/prd.md` for the full requirements this implements.
+See `.scratch/webimport/spec.md` for the full requirements this
+implements, `CONTEXT.md` for domain vocabulary, and `docs/adr/` for the
+hard-to-reverse design decisions behind it.
 
 ## Install
 
