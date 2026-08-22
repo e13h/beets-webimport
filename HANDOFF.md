@@ -9,7 +9,7 @@ stack (Navidrome + beets + Maloja + ARM/abcde).
 
 Two files matter most for context:
 
-- `beets-web-plugin-prd.md` — the full product requirements. Read this
+- `docs/prd.md` — the full product requirements. Read this
   first; it's the source of truth for *what* to build and *why* each
   design decision was made (grace-period undo semantics, multi-library
   routing via `$navidrome_library`, dual cover-art preview, etc).
@@ -187,7 +187,7 @@ now lists `musicbrainz, fetchart, embedart, webimport`.
 beets-webimport/
 ├── pyproject.toml
 ├── README.md                    # install instructions + simplification notes
-├── beets-web-plugin-prd.md      # full requirements (source of truth for "what")
+├── docs/prd.md                  # full requirements (source of truth for "what")
 └── beetsplug/webimport/
     ├── __init__.py              # BeetsPlugin subclass, `beet webimport` command
     ├── session.py                # WebImportSession: choose_match/choose_item/

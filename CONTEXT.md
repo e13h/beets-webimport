@@ -1,7 +1,7 @@
 # CONTEXT.md — repo-specific notes for agents
 
 Practical, hard-won facts for working effectively in this repo. Pairs with
-`HANDOFF.md` (status/what-to-do-next) and `beets-web-plugin-prd.md` (the
+`HANDOFF.md` (status/what-to-do-next) and `docs/prd.md` (the
 "what/why" source of truth). Read those too; this file is the "how things
 actually work here" cheat sheet.
 

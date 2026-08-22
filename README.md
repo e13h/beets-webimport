@@ -14,7 +14,7 @@ web UI for:
   variable
 - Reimport UI (`-L -S <mbid> --from-scratch --set field=value` equivalent)
 
-See `beets-web-plugin-prd.md` for the full requirements this implements.
+See `docs/prd.md` for the full requirements this implements.
 
 ## Install
 
