@@ -22,7 +22,7 @@ webimport:
   inbox_dir: /Users/evansmith/repos/beets-web-import/.inbox
   tag_fields:
     - mood
-  debug: true
+  # debug: true
 
 musicbrainz:
   external_ids:
