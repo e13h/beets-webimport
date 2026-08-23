@@ -9,11 +9,11 @@ it, and confirm the result — then undo it and confirm the undo's effect.
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Playbook reviews the Mulan test album from the inbox through the real UI (not by POSTing directly to `/api/*`).
-- [ ] Forces the target release (`a5483fb3-634b-4254-a966-de33cefd1f17`) via the search-by-ID override and confirms the resulting candidate list reflects it.
-- [ ] Applies the import and confirms: copy-mode file placement under the configured path template, `set_fields` (`navidrome_library=unassigned`) applied, and `cover.jpg` fetched/embedded.
-- [ ] Confirms the applied import appears in the Grace Period / undo list in the UI.
-- [ ] Triggers undo through the UI and confirms the library-side files and DB entry are gone, while the original inbox files remain untouched (per ADR-0001).
-- [ ] Playbook file is added under the location documented in ticket 01, and the disposable library reset step is called out at the top.
+- [x] Playbook reviews the Mulan test album from the inbox through the real UI (not by POSTing directly to `/api/*`).
+- [x] Forces the target release (`a5483fb3-634b-4254-a966-de33cefd1f17`) via the search-by-ID override and confirms the resulting candidate list reflects it.
+- [x] Applies the import and confirms: copy-mode file placement under the configured path template, `set_fields` (`navidrome_library=unassigned`) applied, and `cover.jpg` fetched/embedded.
+- [x] Confirms the applied import appears in the Grace Period / undo list in the UI.
+- [x] Triggers undo through the UI and confirms the library-side files and DB entry are gone, while original inbox files remain untouched (per ADR-0001).
+- [x] Playbook file is added under the location documented in ticket 01, and the disposable library reset step is called out at the top.

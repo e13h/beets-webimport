@@ -7,9 +7,9 @@ manager: restore-on-exit behavior (including on exception) and
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Test: entering the context manager sets `import.from_scratch`/`import.set_fields` as requested; exiting it restores the exact prior values.
-- [ ] Test: if an exception is raised inside the `with` block, the prior config values are still restored (the `finally` path).
-- [ ] Test: `set_fields` passed to the context manager is merged with (not replacing) any pre-existing `set_fields`, and the merge is undone on exit.
-- [ ] No network access required — this only touches `beets.config` and doesn't need a real session run.
+- [x] Test: entering the context manager sets `import.from_scratch`/`import.set_fields` as requested; exiting it restores the exact prior values.
+- [x] Test: if an exception is raised inside the `with` block, the prior config values are still restored (the `finally` path).
+- [x] Test: `set_fields` passed to the context manager is merged with (not replacing) any pre-existing `set_fields`, and the merge is undone on exit.
+- [x] No network access required — this only touches `beets.config` and doesn't need a real session run.

@@ -13,10 +13,10 @@ every playbook ticket below depends on the convention it establishes.
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `CONTEXT.md` no longer describes the `test_client()` bootstrap as the way to close the loop; it describes starting/stopping a real `beet webimport` server instead.
-- [ ] Documents the disposable-library reset steps (already partially present) in terms of the new workflow.
-- [ ] Documents a conventional location for playbook files (e.g. `docs/playbooks/` or similar) and the shape a playbook takes (numbered steps, expected observable outcomes, Playwright MCP tool calls).
-- [ ] Documents the network-host allowlist needed for playbooks that hit MusicBrainz/CAA for real.
-- [ ] References `.scratch/webimport/spec.md`'s Testing Decisions section and ADR-0009 rather than re-deriving the rationale for the seam.
+- [x] `CONTEXT.md` no longer describes the `test_client()` bootstrap as the way to close the loop; it describes starting/stopping a real `beet webimport` server instead.
+- [x] Documents the disposable-library reset steps (already partially present) in terms of the new workflow.
+- [x] Documents a conventional location for playbook files (e.g. `docs/playbooks/` or similar) and the shape a playbook takes (numbered steps, expected observable outcomes, Playwright MCP tool calls).
+- [x] Documents the network-host allowlist needed for playbooks that hit MusicBrainz/CAA for real.
+- [x] References `.scratch/webimport/spec.md`'s Testing Decisions section and ADR-0009 rather than re-deriving the rationale for the seam.

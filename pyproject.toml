@@ -21,3 +21,6 @@ include = ["beetsplug*"]
 
 [tool.setuptools.package-data]
 "beetsplug.webimport" = ["static/**/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

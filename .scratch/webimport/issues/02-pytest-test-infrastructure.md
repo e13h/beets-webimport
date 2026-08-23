@@ -9,9 +9,9 @@ coverage itself, but every unit-test ticket below depends on it existing.
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `tests/` directory exists with a `conftest.py` (or equivalent) providing a fixture that yields a disposable beets `Library` backed by a temp directory/SQLite file, torn down after each test.
-- [ ] Running `pytest` from the repo root (with no other changes) passes with zero collected tests (or a trivial smoke test), proving the harness itself works.
-- [ ] Documented in `CONTEXT.md` alongside the Playwright playbook conventions, distinguishing "fast pytest unit tests, no network/server" from "Playwright playbooks, real network/server" as the two testing layers per ADR-0009 and `.scratch/webimport/spec.md`'s Testing Decisions section.
-- [ ] No network access required to run this suite.
+- [x] `tests/` directory exists with a `conftest.py` (or equivalent) providing a fixture that yields a disposable beets `Library` backed by a temp directory/SQLite file, torn down after each test.
+- [x] Running `pytest` from the repo root (with no other changes) passes with zero collected tests (or a trivial smoke test), proving the harness itself works.
+- [x] Documented in `CONTEXT.md` alongside the Playwright playbook conventions, distinguishing "fast pytest unit tests, no network/server" from "Playwright playbooks, real network/server" as the two testing layers per ADR-0009 and `.scratch/webimport/spec.md`'s Testing Decisions section.
+- [x] No network access required to run this suite.

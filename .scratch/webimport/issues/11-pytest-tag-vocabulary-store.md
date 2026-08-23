@@ -7,9 +7,9 @@
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Test: adding a new tag name/value to the vocabulary persists it and it's retrievable afterward.
-- [ ] Test: applying a tag at the album level writes it down to every track file in that album (`beet write` equivalent), per the spec's "album-level tag assignment writes down to every track file" requirement — verified against the disposable library fixture.
-- [ ] Test: applying a tag to an individual track only affects that track, not the whole album.
-- [ ] No network access required.
+- [x] Test: adding a new tag name/value to the vocabulary persists it and it's retrievable afterward.
+- [x] Test: applying a tag at the album level writes it down to every track file in that album (`beet write` equivalent), per the spec's "album-level tag assignment writes down to every track file" requirement — verified against the disposable library fixture.
+- [x] Test: applying a tag to an individual track only affects that track, not the whole album.
+- [x] No network access required.

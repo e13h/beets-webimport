@@ -7,9 +7,9 @@ from ticket 02.
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Test: a real `Item`/`Album` with bytes-valued fields (`path`, `artpath`, `destination()`) round-trips through `_jsonable_fields` into a dict that's actually JSON-serializable (e.g. `json.dumps` doesn't raise).
-- [ ] Test: the decoded values match the original paths (accounting for `os.fsencode`/`os.fsdecode`).
-- [ ] Test: a field that is `None` (e.g. no `artpath` set) decodes to `None`/absent rather than raising.
-- [ ] No network access required.
+- [x] Test: a real `Item`/`Album` with bytes-valued fields (`path`, `artpath`, `destination()`) round-trips through `_jsonable_fields` into a dict that's actually JSON-serializable (e.g. `json.dumps` doesn't raise).
+- [x] Test: the decoded values match the original paths (accounting for `os.fsencode`/`os.fsdecode`).
+- [x] Test: a field that is `None` (e.g. no `artpath` set) decodes to `None`/absent rather than raising.
+- [x] No network access required.

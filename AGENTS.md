@@ -17,3 +17,7 @@ Single-context: `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/do
 ### Dev environment & beets API notes
 
 Local setup, gotchas, and verified beets 2.13.1 API facts. See `docs/agents/dev-environment.md`.
+
+### Testing workflows
+
+Pytest unit tests and Playwright playbooks. See `docs/agents/testing.md`.

@@ -9,9 +9,9 @@ album.
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Test fixture: an inbox directory containing tracks from more than one real album/single (a synthetic "burned playlist" rip), added to the disposable test inbox.
-- [ ] Playbook drags/assigns files from that directory into two or more ad-hoc Staging Bins through the real UI.
-- [ ] Confirms each bin goes through an ordinary beets import (directory-based grouping) once populated, per ADR-0003 — i.e. each ends up as its own correctly-matched album, not a single merged import.
-- [ ] Confirms this works for both a multi-track album bin and a singleton bin, if the UI distinguishes them.
+- [x] Test fixture: an inbox directory containing tracks from more than one real album/single (a synthetic "burned playlist" rip), added to the disposable test inbox.
+- [x] Playbook drags/assigns files from that directory into two or more ad-hoc Staging Bins through the real UI.
+- [x] Confirms each bin goes through an ordinary beets import (directory-based grouping) once populated, per ADR-0003 — i.e. each ends up as its own correctly-matched album, not a single merged import.
+- [x] Confirms this works for both a multi-track album bin and a singleton bin, if the UI distinguishes them.

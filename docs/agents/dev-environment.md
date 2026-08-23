@@ -37,32 +37,13 @@ plugin, it silently does nothing:
 `.config/config.yaml` therefore lists all of:
 `musicbrainz, fetchart, embedart, webimport`. Keep it that way.
 
-## Closing the loop without a browser (key technique)
+## Testing workflows (Playwright playbooks + pytest)
 
-You can drive the whole plugin end-to-end **in-process** by acting as the
-browser through Flask's `test_client()` — no manual clicking, no long-running
-server. The reusable harnesses live in `scripts/` (run from the repo root):
+Per ADR-0009 and `CONTEXT.md`, testing is structured in two layers:
+1. **Playwright Playbooks (`docs/playbooks/`):** End-to-end user flows driven by an agent using Playwright MCP browser tools against a live `beet webimport` server on `http://localhost:8338`. Replaces the deprecated `scripts/drive_*.py` test_client harnesses.
+2. **Pytest Unit Tests (`tests/`):** Fast, hermetic, offline tests using the disposable `lib` fixture from `tests/conftest.py`.
 
-- `scripts/drive_import.py` — full inbox import (review → force MBID → apply).
-- `scripts/drive_undo.py` — grace-period undo.
-- `scripts/drive_art.py` — cover-art preview endpoint.
-- `scripts/drive_concurrency.py` — parallel review + serial apply + duplicates.
-
-See `scripts/README.md`. The canonical bootstrap inside a driver:
-```python
-import os; os.environ["BEETSDIR"] = os.path.abspath("./.config")
-from beets import config, plugins
-from beets.ui import _open_library
-config.read()
-plugins.load_plugins()            # NOTE: takes NO args in beets 2.13
-lib = _open_library(config)
-from beetsplug.webimport.server import create_app
-plugin = next(p for p in plugins.find_plugins() if p.name == "webimport")
-app = create_app(lib, config["webimport"], plugin)
-client = app.test_client()
-```
-
-Network hosts the drivers need (for terminal sandbox `allow_hosts`):
+Network hosts needed for playbooks that hit MusicBrainz/CAA (for terminal sandbox `allow_hosts`):
 `musicbrainz.org`, `*.musicbrainz.org`, `coverartarchive.org`,
 `*.coverartarchive.org`, `archive.org`, `*.archive.org`,
 `itunes.apple.com`, `*.mzstatic.com`.
