@@ -2,8 +2,7 @@ Status: ready-for-agent
 
 # beets-webimport: Web UI for Import Review, Library Browsing, and Multi-Library Routing
 
-Consolidates `docs/prd.md` and `HANDOFF.md` (both deprecated by this spec)
-plus the decisions made while sharpening the domain model into
+Contains decisions made while sharpening the domain model into
 `CONTEXT.md` and `docs/adr/`. Uses that glossary's vocabulary throughout;
 where this spec's requirements touch a recorded ADR, the ADR is cited
 rather than re-justified.
@@ -154,6 +153,5 @@ work unmodified since only the review-decision hooks are overridden.
 
 ## Further Notes
 
-- `docs/prd.md` and `HANDOFF.md` have been deleted; this spec plus `CONTEXT.md` (glossary) and `docs/adr/0001`–`0009` (hard-to-reverse decisions) are now the source of truth.
 - Mobile touch interactions (long-press-to-menu, `attachLongPress` in `app.js`) are implemented as the touch equivalent of drag-and-drop but have never been exercised on a real touch device — only reviewed for logical correctness. Worth an explicit playbook step (or manual pass) on an actual device before treating mobile support as verified.
 - The known config landmine — beets' `plugins:` key replacing rather than merging with its default `[musicbrainz]` — has already caused a real, silent bug (CAA source-id mismatch) during prior verification; keep it in mind for any future config-handling change.

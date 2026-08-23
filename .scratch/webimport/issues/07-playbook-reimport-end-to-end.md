@@ -1,7 +1,6 @@
 # 07: Playbook — reimport end-to-end
 
-**What to build:** A new Playwright playbook (previously untested — the
-biggest risk area called out in the superseded HANDOFF.md) covering
+**What to build:** A new Playwright playbook (previously untested — big risk area) covering
 reimport: driving `--from-scratch` + `--set` against an already-applied
 album through the UI, confirming the diff view, and confirming grace-
 period undo behaves the same as a fresh import.

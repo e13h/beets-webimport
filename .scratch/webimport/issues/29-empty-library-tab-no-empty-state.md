@@ -4,7 +4,7 @@ Status: ready-for-agent
 
 **Category:** enhancement
 **Source:** UX walkthrough session (Playwright MCP, browser-driven, per
-ADR-0009), reported via `HANDOFF.md`. Reporter-suggested severity: Low.
+ADR-0009). Reporter-suggested severity: Low.
 
 ## What was observed
 
