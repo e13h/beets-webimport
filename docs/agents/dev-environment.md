@@ -40,7 +40,7 @@ plugin, it silently does nothing:
 ## Testing workflows (Playwright playbooks + pytest)
 
 Per ADR-0009 and `CONTEXT.md`, testing is structured in two layers:
-1. **Playwright Playbooks (`docs/playbooks/`):** End-to-end user flows driven by an agent using Playwright MCP browser tools against a live `beet webimport` server on `http://localhost:8338`. Replaces the deprecated `scripts/drive_*.py` test_client harnesses.
+1. **Playwright Playbooks (`docs/playbooks/`):** End-to-end user flows driven by an agent using Playwright MCP browser tools against a live `beet webimport` server on `http://localhost:8338`.
 2. **Pytest Unit Tests (`tests/`):** Fast, hermetic, offline tests using the disposable `lib` fixture from `tests/conftest.py`.
 
 Network hosts needed for playbooks that hit MusicBrainz/CAA (for terminal sandbox `allow_hosts`):

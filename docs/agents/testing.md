@@ -39,4 +39,4 @@ Per ADR-0009 and `.scratch/webimport/spec.md`'s Testing Decisions section, testi
   - `coverartarchive.org`, `*.coverartarchive.org`
   - `archive.org`, `*.archive.org`
   - `itunes.apple.com`, `*.mzstatic.com`
-- **Deprecation Note:** Direct in-process Flask `test_client()` driver scripts (`scripts/drive_*.py`) are superseded by these Playwright playbooks (ADR-0009).
+- **Design Seam:** Verification drives the real frontend through a browser via Playwright MCP tools rather than calling internal API routes in-process (ADR-0009).

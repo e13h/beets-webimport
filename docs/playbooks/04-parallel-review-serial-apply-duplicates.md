@@ -3,7 +3,6 @@
 **Purpose:** Verify parallel candidate review across concurrent inbox submissions, serialized import application via the Apply Lock (ADR-0006), and duplicate conflict resolution (`get_duplicate_action`) in the web UI.
 
 **Context & References:**
-- Replaces deprecated driver `scripts/drive_concurrency.py` per ADR-0009.
 - Validates concurrency and mutual exclusion guarantees documented in `CONTEXT.md` (Apply Lock, Import Session, Import Task, Placement Conflict) and ADR-0006 (`docs/adr/0006-serial-apply-lock-over-parallel-apply.md`).
 - Implements User Story 15 and duplicate handling specifications in `.scratch/webimport/spec.md`.
 

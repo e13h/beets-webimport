@@ -4,7 +4,7 @@
 
 This playbook verifies the standard **Inbox Import**, **Search-by-ID Override**, **Apply**, and **Grace-Period Undo** workflows as specified in `.scratch/webimport/spec.md` (User Stories 1–8, 21–25), **ADR-0001** (Copy-mode import with ID-scoped undo), and **ADR-0009** (Playwright against a real running server over in-process `test_client()` scripts).
 
-This playbook supersedes and replaces the deprecated `test_client()` scripts `scripts/drive_import.py` and `scripts/drive_undo.py`.
+This playbook provides end-to-end verification for the import, apply, and undo workflow.
 
 ### Scenario
 1. An album folder (`Mulan (Original Motion Picture Soundtrack)`) exists in `.inbox/`.

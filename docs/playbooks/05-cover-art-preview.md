@@ -2,7 +2,7 @@
 
 This playbook provides an end-to-end procedure for verifying the **Dual Cover-Art Preview** feature in `beets-webimport` using Playwright MCP browser tools against a live running server.
 
-It supersedes and replaces the deprecated `scripts/drive_art.py` test driver script per **ADR-0009** and **.scratch/webimport/spec.md** (Testing Decisions & Dual cover-art preview sections).
+It provides end-to-end verification for cover art previews per **ADR-0009** and **.scratch/webimport/spec.md** (Testing Decisions & Dual cover-art preview sections).
 
 ---
 
@@ -277,4 +277,3 @@ rm -f .config/state.pickle && rm -rf .config/webimport
 - **ADR-0009:** Playwright against a real running server, over in-process `test_client()` scripts (`docs/adr/0009-playwright-against-real-server-over-test-client-scripts.md`)
 - **Spec:** `.scratch/webimport/spec.md` (Dual cover-art preview & Testing Decisions)
 - **Domain & Glossary:** `CONTEXT.md` (*Source Art*, *Resolved Art*)
-- **Replaces:** `scripts/drive_art.py`

@@ -6,8 +6,8 @@ untested scenarios) has Playwright playbook coverage, per ADR-0009.
 
 **Blocked by:** 03, 04, 05, 06, 07
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `scripts/drive_import.py`, `scripts/drive_undo.py`, `scripts/drive_art.py`, `scripts/drive_concurrency.py`, and `scripts/README.md` are deleted.
-- [ ] The `scripts/` directory itself is removed if nothing remains in it.
-- [ ] No remaining references to `scripts/drive_*.py` or `scripts/README.md` in `CONTEXT.md`, `README.md`, `.scratch/webimport/spec.md`, or `docs/adr/*.md` — update any that mention them to point at the new playbooks instead.
+- [x] `scripts/drive_import.py`, `scripts/drive_undo.py`, `scripts/drive_art.py`, `scripts/drive_concurrency.py`, and `scripts/README.md` are deleted.
+- [x] The `scripts/` directory itself is removed if nothing remains in it.
+- [x] No remaining references to `scripts/drive_*.py` or `scripts/README.md` in `CONTEXT.md`, `README.md`, `.scratch/webimport/spec.md`, or `docs/adr/*.md` — update any that mention them to point at the new playbooks instead.
