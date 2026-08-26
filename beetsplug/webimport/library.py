@@ -155,6 +155,10 @@ def set_album_fields(
         for item in items:
             item[k] = v
 
+    album.store()
+    for item in items:
+        item.store()
+
     if move and _paths_would_change_for_items(items):
         conflicts = []
         for item in items:
@@ -168,18 +172,20 @@ def set_album_fields(
 
         if conflicts:
             if conflict_resolution is None:
-                # Conflict detected! Revert in-memory changes before returning
+                # Conflict detected! Revert in DB before returning
                 for k, v in old_album_fields.items():
                     if v is None:
                         del album[k]
                     else:
                         album[k] = v
+                album.store()
                 for item, old_f in zip(items, old_items_fields):
                     for k, v in old_f.items():
                         if v is None:
                             del item[k]
                         else:
                             item[k] = v
+                    item.store()
                 return {
                     "ok": False,
                     "conflict": True,
@@ -190,7 +196,7 @@ def set_album_fields(
                     "message": f"Destination path '{conflicts[0]}' is already occupied.",
                 }
             elif conflict_resolution == "skip":
-                # Revert changes in memory and ensure DB has original values
+                # Revert changes in DB
                 for k, v in old_album_fields.items():
                     if v is None:
                         del album[k]
@@ -212,21 +218,12 @@ def set_album_fields(
                             os.remove(c)
                         except OSError:
                             pass
-                album.store()
-                for item in items:
-                    item.store()
                 album.move()
                 return {"ok": True, "action": "overwrite"}
             elif conflict_resolution == "keep_both":
-                album.store()
-                for item in items:
-                    item.store()
                 album.move()
                 return {"ok": True, "action": "keep_both"}
 
-    album.store()
-    for item in items:
-        item.store()
     if move and _paths_would_change_for_items(items):
         album.move()
     return {"ok": True}
@@ -251,6 +248,8 @@ def set_item_fields(
     for k, v in fields.items():
         item[k] = v
 
+    item.store()
+
     if move and _paths_would_change(item):
         try:
             new_dest = item.destination()
@@ -260,12 +259,13 @@ def set_item_fields(
         dest_str = syspath(new_dest)
         if bytes(new_dest) != bytes(item.path) and os.path.exists(dest_str):
             if conflict_resolution is None:
-                # Revert in-memory before returning conflict
+                # Revert in DB
                 for k, v in old_fields.items():
                     if v is None:
                         del item[k]
                     else:
                         item[k] = v
+                item.store()
                 return {
                     "ok": False,
                     "conflict": True,
@@ -288,15 +288,12 @@ def set_item_fields(
                         os.remove(dest_str)
                     except OSError:
                         pass
-                item.store()
                 item.move()
                 return {"ok": True, "action": "overwrite"}
             elif conflict_resolution == "keep_both":
-                item.store()
                 item.move()
                 return {"ok": True, "action": "keep_both"}
 
-    item.store()
     if move and _paths_would_change(item):
         item.move()
     return {"ok": True}

@@ -50,18 +50,15 @@ def test_placement_conflict_detection_and_skip(lib, tmp_path, create_wav_file):
     album.albumartist = "OriginalArtist"
     album.store()
 
-    # Determine proposed destination for NewArtist
-    item.albumartist = "NewArtist"
-    item.artist = "NewArtist"
-    colliding_dest = Path(syspath(item.destination()))
-    item.albumartist = "OriginalArtist"
-    item.artist = "OriginalArtist"
-
+    # Pre-occupy colliding destination for NewArtist
+    colliding_dest = music_dir / "NewArtist" / "Album" / "01 Track 1.wav"
     create_wav_file(colliding_dest)
     colliding_dest.write_text("unrelated existing content")
 
     # Attempt to change albumartist to NewArtist without conflict_resolution
-    res = wi_lib.set_album_fields(lib, album.id, {"albumartist": "NewArtist", "artist": "NewArtist"}, move=True)
+    res = wi_lib.set_album_fields(
+        lib, album.id, {"albumartist": "NewArtist", "artist": "NewArtist"}, move=True
+    )
     assert res.get("conflict") is True
     assert res.get("destination") == str(colliding_dest)
 
@@ -108,12 +105,7 @@ def test_placement_conflict_overwrite(lib, tmp_path, create_wav_file):
     album.albumartist = "OriginalArtist"
     album.store()
 
-    item.albumartist = "NewArtist"
-    item.artist = "NewArtist"
-    colliding_dest = Path(syspath(item.destination()))
-    item.albumartist = "OriginalArtist"
-    item.artist = "OriginalArtist"
-
+    colliding_dest = music_dir / "NewArtist" / "Album" / "01 Track 1.wav"
     create_wav_file(colliding_dest)
     colliding_dest.write_text("old file to overwrite")
 
@@ -132,7 +124,6 @@ def test_placement_conflict_overwrite(lib, tmp_path, create_wav_file):
     assert colliding_dest.exists()
     reloaded_item = lib.get_item(item.id)
     assert Path(syspath(reloaded_item.path)) == colliding_dest
-    assert colliding_dest.exists()
 
 
 def test_placement_conflict_keep_both(lib, tmp_path, create_wav_file):
@@ -152,12 +143,7 @@ def test_placement_conflict_keep_both(lib, tmp_path, create_wav_file):
     album.albumartist = "OriginalArtist"
     album.store()
 
-    item.albumartist = "NewArtist"
-    item.artist = "NewArtist"
-    colliding_dest = Path(syspath(item.destination()))
-    item.albumartist = "OriginalArtist"
-    item.artist = "OriginalArtist"
-
+    colliding_dest = music_dir / "NewArtist" / "Album" / "01 Track 1.wav"
     create_wav_file(colliding_dest)
     colliding_dest.write_text("existing file to preserve")
 
