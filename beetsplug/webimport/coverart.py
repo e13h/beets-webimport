@@ -64,7 +64,7 @@ def get_album_art_data(
         if art_path.exists() and art_path.is_file():
             try:
                 raw_bytes = art_path.read_bytes()
-                mtime = int(art_path.stat().st_mtime)
+                mtime = int(art_path.stat().st_mtime_ns)
             except OSError:
                 raw_bytes = None
 
@@ -79,7 +79,7 @@ def get_album_art_data(
                     mf = mediafile.MediaFile(str(item_path))
                     if mf.art:
                         raw_bytes = mf.art
-                        mtime = int(item_path.stat().st_mtime)
+                        mtime = int(item_path.stat().st_mtime_ns)
                         break
             except Exception:
                 continue

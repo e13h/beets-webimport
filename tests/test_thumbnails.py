@@ -56,7 +56,7 @@ def test_thumbnail_cache_invalidation_on_art_change(lib, tmp_path, create_wav_fi
     # Mutate cover file with new mtime / content
     import time
 
-    time.sleep(1.1)  # ensure filesystem mtime change
+    time.sleep(0.05)  # slight pause for nanosecond mtime change
     cover_file.write_bytes(b"\xff\xd8\xff\xe0" + b"art_v2_updated" * 30)
 
     data2, _ = wi_coverart.get_album_art_data(album, cache_dir=cache_dir, thumb=True)
