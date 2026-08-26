@@ -1,6 +1,6 @@
 # 26: No double-submit protection — same inbox path listed under both Inbox and Pending Review at once
 
-Status: ready-for-agent
+Status: done
 
 **Category:** bug
 **Source:** UX walkthrough session (Playwright MCP, browser-driven, per
@@ -59,10 +59,10 @@ When "Start import" is clicked for an inbox directory, that directory remains li
 - `app.js` (`renderInbox` UI logic).
 
 **Acceptance criteria:**
-- [ ] Both Option A and Option B prototypes are presented to the user for a decision.
-- [ ] The chosen option is implemented cleanly.
-- [ ] An inbox folder currently in-flight or pending review cannot have "Start import" clicked a second time.
-- [ ] If an in-flight import is completed or skipped/canceled, the inbox list updates its status accordingly.
+- [x] Both Option A and Option B prototypes are presented to the user for a decision.
+- [x] The chosen option is implemented cleanly.
+- [x] An inbox folder currently in-flight or pending review cannot have "Start import" clicked a second time.
+- [x] If an in-flight import is completed or skipped/canceled, the inbox list updates its status accordingly.
 
 **Out of scope:**
 - Detection of whether source files in the inbox match albums already present in the library database (covered separately in #22).

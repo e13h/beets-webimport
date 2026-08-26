@@ -47,19 +47,43 @@ def create_app(lib, wi_config, plugin):
     grace = GracePeriodManager(lib, wi_config["grace_period_seconds"].get(int))
     pool = InboxWorkerPool(wi_config["candidate_search_workers"].get(int))
 
-    data_dir = Path(beets_config.config_dir()) / "webimport"
-    tag_store = tags.TagStore(data_dir / "tags.json")
+    tag_store_cfg = wi_config.get("tag_store_path") if isinstance(wi_config, dict) else None
+    if tag_store_cfg:
+        tag_store = tags.TagStore(Path(tag_store_cfg.get(str)))
+    else:
+        try:
+            data_dir = Path(beets_config.config_dir()) / "webimport"
+        except Exception:
+            import tempfile
+
+            data_dir = Path(tempfile.gettempdir()) / "webimport"
+        tag_store = tags.TagStore(data_dir / "tags.json")
     for field in wi_config["tag_fields"].get(list):
         tag_store.add_field(field)
 
     inbox_dir = wi_config["inbox_dir"].get(str) or ""
+    _import_ctx = threading.local()
 
     # -- capture successful imports for grace-period undo -----------------
     def _on_album_imported(lib, album):
-        grace.register("album", album.id, f"{album.albumartist} - {album.album}")
+        inbox_path = getattr(_import_ctx, "path", None)
+        if inbox_path:
+            _import_ctx.imported_album_id = album.id
+        grace.register(
+            "album",
+            album.id,
+            f"{album.albumartist} - {album.album}",
+            inbox_path=inbox_path,
+        )
 
     def _on_item_imported(lib, item):
-        grace.register("item", item.id, f"{item.artist} - {item.title}")
+        inbox_path = getattr(_import_ctx, "path", None)
+        grace.register(
+            "item",
+            item.id,
+            f"{item.artist} - {item.title}",
+            inbox_path=inbox_path,
+        )
 
     plugin.register_listener("album_imported", _on_album_imported)
     plugin.register_listener("item_imported", _on_item_imported)
@@ -68,6 +92,8 @@ def create_app(lib, wi_config, plugin):
 
     # -- inbox scanning / import kickoff -----------------------------------
     def _run_album_import(path: str):
+        _import_ctx.path = path
+        _import_ctx.imported_album_id = None
         session = WebImportSession(
             lib,
             loghandler,
@@ -79,27 +105,98 @@ def create_app(lib, wi_config, plugin):
         )
         try:
             session.run()
+            if getattr(_import_ctx, "imported_album_id", None) is not None:
+                marker_path = Path(path) / ".webimport_imported"
+                try:
+                    import json
+                    from datetime import datetime, timezone
+
+                    marker_data = {
+                        "album_id": _import_ctx.imported_album_id,
+                        "imported_at": datetime.now(timezone.utc).isoformat(),
+                        "staging_bin": "_grouped" in str(path),
+                    }
+                    marker_path.write_text(json.dumps(marker_data), encoding="utf-8")
+                except Exception as exc:
+                    log.warning("webimport: failed to write imported marker to %s: %s", path, exc)
         finally:
             if session._lock_acquired:
                 apply_lock.release()
+            _import_ctx.path = None
+            _import_ctx.imported_album_id = None
 
     @app.get("/api/inbox")
     def api_inbox_list():
-        """Lists album-sized directories under the inbox that haven't
-        been submitted for import yet, plus anything currently pending
-        review."""
+        """Lists album-sized directories under the inbox with import
+        status and pending review status."""
         found = []
         base = Path(inbox_dir)
+        running_paths = pool.running_paths()
+        pending_list = review_manager.list_pending()
+        pending_paths = {pr["path"] for pr in pending_list}
+
         if base.is_dir():
             for sub in sorted(base.iterdir()):
                 if sub.is_dir():
-                    found.append(str(sub))
+                    path_str = str(sub)
+                    marker_file = sub / ".webimport_imported"
+                    imported = False
+                    album_id = None
+                    imported_at = None
+                    staging_bin = False
+                    if marker_file.exists():
+                        try:
+                            import json
+
+                            m_data = json.loads(marker_file.read_text(encoding="utf-8"))
+                            imported = True
+                            album_id = m_data.get("album_id")
+                            imported_at = m_data.get("imported_at")
+                            staging_bin = m_data.get("staging_bin", False)
+                        except Exception:
+                            imported = True
+
+                    is_in_progress = path_str in running_paths
+                    is_pending_review = path_str in pending_paths
+
+                    found.append(
+                        {
+                            "path": path_str,
+                            "imported": imported,
+                            "album_id": album_id,
+                            "imported_at": imported_at,
+                            "staging_bin": staging_bin,
+                            "in_progress": is_in_progress,
+                            "pending_review": is_pending_review,
+                        }
+                    )
         return jsonify(
             {
                 "inbox_dirs": found,
-                "pending_review": review_manager.list_pending(),
+                "pending_review": pending_list,
             }
         )
+
+    @app.post("/api/inbox/delete")
+    @_safe
+    def api_inbox_delete():
+        body = request.get_json(force=True)
+        raw_path = body.get("path", "")
+        if not raw_path:
+            return jsonify({"ok": False, "error": "No path provided"}), 400
+        target = Path(raw_path).resolve()
+        base = Path(inbox_dir).resolve()
+        if not inbox_dir or not str(target).startswith(str(base)) or target == base:
+            return jsonify({"ok": False, "error": "Invalid path"}), 400
+        if target.is_dir():
+            import shutil
+
+            shutil.rmtree(target)
+            return jsonify({"ok": True})
+        elif target.is_file():
+            target.unlink()
+            return jsonify({"ok": True})
+        return jsonify({"ok": False, "error": "Not found"}), 404
 
     @app.post("/api/inbox/start")
     def api_inbox_start():

@@ -1,6 +1,6 @@
 # 29: Empty Library tab has no empty state (unlike Undo tab)
 
-Status: ready-for-agent
+Status: done
 
 **Category:** enhancement
 **Source:** UX walkthrough session (Playwright MCP, browser-driven, per
@@ -46,10 +46,10 @@ When the library has no albums (or when a search query yields zero matches), the
 - `style.css` (`.empty-state` / `.muted` styling).
 
 **Acceptance criteria:**
-- [ ] Navigating to the Library tab with an empty database shows a "No albums in library." message.
-- [ ] Typing a query that matches no albums shows a "No albums matching “<query>” found." message including the exact string typed.
-- [ ] Changing the search query dynamically updates the quoted search string in the empty state message.
-- [ ] When albums exist and match, the empty state is hidden and the album grid renders normally.
+- [x] Navigating to the Library tab with an empty database shows a "No albums in library." message.
+- [x] Typing a query that matches no albums shows a "No albums matching “<query>” found." message including the exact string typed.
+- [x] Changing the search query dynamically updates the quoted search string in the empty state message.
+- [x] When albums exist and match, the empty state is hidden and the album grid renders normally.
 
 **Out of scope:**
 - Adding import buttons or promotional cards inside the empty state.

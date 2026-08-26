@@ -11,6 +11,7 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -19,6 +20,7 @@ class UndoRecord:
     kind: str  # "album" | "item"
     db_id: int
     label: str  # human-readable, for the UI list
+    inbox_path: str | None = None
     imported_at: float = field(default_factory=time.time)
 
 
@@ -29,13 +31,13 @@ class GracePeriodManager:
         self._records: dict[str, UndoRecord] = {}
         self._lock = threading.Lock()
 
-    def register(self, kind: str, db_id: int, label: str) -> str:
+    def register(self, kind: str, db_id: int, label: str, inbox_path: str | None = None) -> str:
         import uuid
 
         record_id = uuid.uuid4().hex
         with self._lock:
             self._records[record_id] = UndoRecord(
-                record_id=record_id, kind=kind, db_id=db_id, label=label
+                record_id=record_id, kind=kind, db_id=db_id, label=label, inbox_path=inbox_path
             )
         return record_id
 
@@ -50,7 +52,7 @@ class GracePeriodManager:
             for rid in expired:
                 del self._records[rid]
 
-    def list_undoable(self) -> list[dict]:
+    def list_undoable(self) -> list[dict[str, Any]]:
         self._prune_expired()
         now = time.time()
         with self._lock:
@@ -86,4 +88,14 @@ class GracePeriodManager:
             return False  # already gone
 
         obj.remove(delete=True)  # == `beet remove -d`, scoped to this ID
+
+        if rec.inbox_path:
+            from pathlib import Path
+            marker = Path(rec.inbox_path) / ".webimport_imported"
+            if marker.exists():
+                try:
+                    marker.unlink()
+                except OSError:
+                    pass
+
         return True

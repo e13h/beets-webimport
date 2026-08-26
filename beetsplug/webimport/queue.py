@@ -118,5 +118,14 @@ class InboxWorkerPool:
         self._futures[path] = fut
         return fut
 
+    def is_running(self, path: str) -> bool:
+        fut = self._futures.get(path)
+        if fut is None:
+            return False
+        return fut.running() or not fut.done()
+
+    def running_paths(self) -> set[str]:
+        return {p for p, fut in self._futures.items() if fut.running() or not fut.done()}
+
     def shutdown(self):
         self._executor.shutdown(wait=False)

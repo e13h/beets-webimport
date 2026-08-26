@@ -1,6 +1,6 @@
 # 23: No success/failure feedback when applying a review decision
 
-Status: ready-for-agent
+Status: done
 
 **Category:** enhancement
 **Source:** UX walkthrough session (Playwright MCP, browser-driven, per
@@ -63,12 +63,12 @@ When a review decision (such as forcing an MBID or clicking "Select" to apply a 
 - Frontend status container in `index.html` and `style.css`.
 
 **Acceptance criteria:**
-- [ ] Prototypes of the feedback options are created and presented for user review.
-- [ ] The user's selected feedback mechanism is implemented and active.
-- [ ] Submitting an import decision immediately triggers the in-progress status.
-- [ ] Completing the apply updates the notification to a success state with the imported album details and dismisses as designed.
-- [ ] Any network or server error during decision POST is displayed clearly in the UI.
-- [ ] No regressions to modal closing or inbox/library reloading behavior.
+- [x] Prototypes of the feedback options are created and presented for user review.
+- [x] The user's selected feedback mechanism is implemented and active.
+- [x] Submitting an import decision immediately triggers the in-progress status.
+- [x] Completing the apply updates the notification to a success state with the imported album details and dismisses as designed.
+- [x] Any network or server error during decision POST is displayed clearly in the UI.
+- [x] No regressions to modal closing or inbox/library reloading behavior.
 
 **Out of scope:**
 - Modifying backend threading, `ApplyLock`, or beets pipeline stages.

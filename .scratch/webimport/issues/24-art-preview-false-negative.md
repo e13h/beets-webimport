@@ -1,6 +1,6 @@
 # 24: Candidate review's cover-art preview shows a false "unavailable" error that doesn't retry
 
-Status: ready-for-agent
+Status: done
 
 **Category:** bug
 **Source:** UX walkthrough session (Playwright MCP, browser-driven, per
@@ -73,11 +73,11 @@ When Cover Art Archive / archive.org returns transient 502/503 errors during can
 - `style.css`: `.art-preview-retry` button and retry status styling.
 
 **Acceptance criteria:**
-- [ ] Transient 502/503 errors on candidate art preview trigger up to 2 automatic retry attempts.
-- [ ] The loading indicator displays clear visual feedback when an auto-retry is occurring.
-- [ ] If art resolves on retry, the cover image and Source/Resolved match indicator render normally.
-- [ ] If all auto-retries fail, a clickable "Retry lookup" button appears on the card.
-- [ ] Clicking "Retry lookup" restarts the art resolution attempt.
+- [x] Transient 502/503 errors on candidate art preview trigger up to 2 automatic retry attempts.
+- [x] The loading indicator displays clear visual feedback when an auto-retry is occurring.
+- [x] If art resolves on retry, the cover image and Source/Resolved match indicator render normally.
+- [x] If all auto-retries fail, a clickable "Retry lookup" button appears on the card.
+- [x] Clicking "Retry lookup" restarts the art resolution attempt.
 
 **Out of scope:**
 - Backend fetchart algorithm changes.

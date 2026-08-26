@@ -1,6 +1,6 @@
 # 22: Inbox shows no indication a folder was already imported, allowing silent duplicate albums
 
-Status: ready-for-agent
+Status: done
 
 **Category:** bug
 **Source:** UX walkthrough session (Playwright MCP, browser-driven, per
@@ -87,12 +87,12 @@ Because beets runs in `copy: yes` mode, source files remain in `.inbox/` after i
 - `style.css`: `.inbox-item.imported` dimmed styling.
 
 **Acceptance criteria:**
-- [ ] Successfully applying an import writes `.webimport_imported` to the inbox folder.
-- [ ] Already-imported folders are detected and rendered with an `[Imported]` badge and dimmed style.
-- [ ] The "Start import" button on already-imported folders is replaced by "Re-import" and "Delete from inbox" actions.
-- [ ] Clicking "Re-import" opens the reimport modal for that album.
-- [ ] Undoing an import removes the marker file and restores the active "Start import" button.
-- [ ] Staging Bins work consistently with the marker file and are cleaned up on grace period expiry per ticket #13.
+- [x] Successfully applying an import writes `.webimport_imported` to the inbox folder.
+- [x] Already-imported folders are detected and rendered with an `[Imported]` badge and dimmed style.
+- [x] The "Start import" button on already-imported folders is replaced by "Re-import" and "Delete from inbox" actions.
+- [x] Clicking "Re-import" opens the reimport modal for that album.
+- [x] Undoing an import removes the marker file and restores the active "Start import" button.
+- [x] Staging Bins work consistently with the marker file and are cleaned up on grace period expiry per ticket #13.
 
 **Out of scope:**
 - Content-hashing all audio files on directory scan.

@@ -1,6 +1,6 @@
 # 28: Modals have no visible close button and no Escape key handler
 
-Status: ready-for-agent
+Status: done
 
 **Category:** enhancement
 **Source:** UX walkthrough session (Playwright MCP, browser-driven, per
@@ -43,10 +43,10 @@ Modals opened via `openModal()` in `app.js` only dismiss when clicking outside o
 - `style.css` (`.modal-close-btn` positioning and hover styles).
 
 **Acceptance criteria:**
-- [ ] Pressing `Escape` closes any currently open modal.
-- [ ] All modals (review candidate, duplicate review, album detail, reimport) render a visible close button.
-- [ ] Clicking the close button dismisses the modal.
-- [ ] Backdrop click-to-dismiss continues to work as before.
+- [x] Pressing `Escape` closes any currently open modal.
+- [x] All modals (review candidate, duplicate review, album detail, reimport) render a visible close button.
+- [x] Clicking the close button dismisses the modal.
+- [x] Backdrop click-to-dismiss continues to work as before.
 
 **Out of scope:**
 - Redesigning modal layout or content beyond adding the close affordance.

@@ -1,6 +1,6 @@
 # 27: Library grid tile CSS breaks visually while art is loading/missing, especially with few albums
 
-Status: ready-for-agent
+Status: done
 
 **Category:** bug
 **Source:** UX walkthrough session (Playwright MCP, browser-driven, per
@@ -68,9 +68,9 @@ In `style.css`, `.grid` uses `grid-template-columns: repeat(auto-fill, minmax(14
 - `app.js` (`renderAlbums` tile image error handling).
 
 **Acceptance criteria:**
-- [ ] A library containing a single album renders a normally-sized tile (not stretched across the full screen width/height).
-- [ ] Albums with missing/404 art render a compact placeholder with title/artist text intact.
-- [ ] Responsive behavior on mobile and desktop viewports is preserved.
+- [x] A library containing a single album renders a normally-sized tile (not stretched across the full screen width/height).
+- [x] Albums with missing/404 art render a compact placeholder with title/artist text intact.
+- [x] Responsive behavior on mobile and desktop viewports is preserved.
 
 **Out of scope:**
 - Implementing the server-side thumbnail caching layer (handled in #17).

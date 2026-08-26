@@ -1,15 +1,104 @@
-// beets-webimport frontend. No build step / framework -- plain fetch +
-// DOM. Kept intentionally simple; see README "Known simplifications".
+// beets-webimport frontend. Plain fetch + DOM.
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+
+function escapeHtml(str) {
+  if (!str) return "";
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// -- Toast notifications ------------------------------------------------
+function showToast(message, type = "info", duration = 4000) {
+  const container = $("#toast-container") || document.body;
+  const toast = document.createElement("div");
+  toast.className = `toast ${type}`;
+
+  let icon = "";
+  if (type === "in-progress") icon = '<span class="spinner"></span>';
+  else if (type === "success") icon = '<span style="color:var(--ok)">✓</span>';
+  else if (type === "error") icon = '<span style="color:var(--danger)">⚠</span>';
+
+  toast.innerHTML = `
+    ${icon}
+    <div class="toast-msg">${escapeHtml(message)}</div>
+    <button class="toast-close" aria-label="Dismiss">&times;</button>`;
+
+  const dismiss = () => {
+    toast.style.opacity = "0";
+    toast.style.transform = "translateY(10px) scale(0.96)";
+    setTimeout(() => toast.remove(), 300);
+  };
+
+  toast.querySelector(".toast-close").addEventListener("click", dismiss);
+  if (duration > 0) setTimeout(dismiss, duration);
+
+  container.appendChild(toast);
+  return { toast, dismiss };
+}
+
+function createProgressToast(initialMessage) {
+  const container = $("#toast-container") || document.body;
+  const toast = document.createElement("div");
+  toast.className = "toast in-progress";
+  toast.innerHTML = `
+    <span class="spinner"></span>
+    <div class="toast-msg">${escapeHtml(initialMessage)}</div>
+    <button class="toast-close" aria-label="Dismiss">&times;</button>`;
+
+  let autoDismissTimer = null;
+  const dismiss = () => {
+    if (autoDismissTimer) clearTimeout(autoDismissTimer);
+    toast.style.opacity = "0";
+    toast.style.transform = "translateY(10px) scale(0.96)";
+    setTimeout(() => toast.remove(), 300);
+  };
+
+  toast.querySelector(".toast-close").addEventListener("click", dismiss);
+  container.appendChild(toast);
+
+  return {
+    update(message, type = "in-progress") {
+      toast.className = `toast ${type}`;
+      let icon = "";
+      if (type === "in-progress") icon = '<span class="spinner"></span>';
+      else if (type === "success") icon = '<span style="color:var(--ok)">✓</span>';
+      else if (type === "error") icon = '<span style="color:var(--danger)">⚠</span>';
+      toast.innerHTML = `
+        ${icon}
+        <div class="toast-msg">${escapeHtml(message)}</div>
+        <button class="toast-close" aria-label="Dismiss">&times;</button>`;
+      toast.querySelector(".toast-close").addEventListener("click", dismiss);
+    },
+    done(message, duration = 4000) {
+      this.update(message, "success");
+      autoDismissTimer = setTimeout(dismiss, duration);
+    },
+    error(message, duration = 6000) {
+      this.update(message, "error");
+      autoDismissTimer = setTimeout(dismiss, duration);
+    },
+    dismiss,
+  };
+}
 
 async function api(path, opts) {
   const res = await fetch(path, {
     headers: { "Content-Type": "application/json" },
     ...opts,
   });
-  if (!res.ok) throw new Error(`${path}: ${res.status}`);
+  if (!res.ok) {
+    let errDetail = `${path}: ${res.status}`;
+    try {
+      const errJson = await res.json();
+      if (errJson.error) errDetail = errJson.error;
+    } catch {
+      // ignore JSON parse failure
+    }
+    throw new Error(errDetail);
+  }
   return res.json();
 }
 
@@ -31,23 +120,45 @@ function refreshTab(tab) {
   if (tab === "tags") loadTags();
 }
 
-// -- modal helper --------------------------------------------------------
+// -- modal helper with visible Close button and Escape key listener ------
 function openModal(contentEl) {
   const backdrop = document.createElement("div");
   backdrop.className = "modal-backdrop";
   const modal = document.createElement("div");
   modal.className = "modal";
+
+  const closeBtn = document.createElement("button");
+  closeBtn.className = "modal-close-btn";
+  closeBtn.innerHTML = "&times;";
+  closeBtn.setAttribute("aria-label", "Close modal");
+  modal.appendChild(closeBtn);
+
   modal.appendChild(contentEl);
   backdrop.appendChild(modal);
+
+  function close() {
+    document.removeEventListener("keydown", onKeyDown);
+    backdrop.remove();
+  }
+
+  function onKeyDown(e) {
+    if (e.key === "Escape") {
+      close();
+    }
+  }
+
+  document.addEventListener("keydown", onKeyDown);
+  closeBtn.addEventListener("click", close);
   backdrop.addEventListener("click", (e) => {
-    if (e.target === backdrop) backdrop.remove();
+    if (e.target === backdrop) close();
   });
+
+  backdrop.close = close;
   $("#modal-root").appendChild(backdrop);
   return backdrop;
 }
 
-// long-press -> menu, as the touch-friendly equivalent of drag-and-drop
-// for actions like "move to bin" / "apply tag" / "assign library".
+// long-press -> menu, touch-friendly equivalent of drag-and-drop
 function attachLongPress(el, buildMenuItems) {
   let timer;
   const start = (x, y) => {
@@ -89,39 +200,112 @@ function showLongPressMenu(x, y, items) {
 
 // ===================== INBOX / REVIEW ===================================
 async function loadInbox() {
-  const data = await api("/api/inbox");
+  let data;
+  try {
+    data = await api("/api/inbox");
+  } catch (err) {
+    showToast(`Failed to load inbox: ${err.message}`, "error");
+    return;
+  }
 
   const dirsEl = $("#inbox-dirs");
   dirsEl.innerHTML = "";
   if (data.inbox_dirs.length === 0) {
     dirsEl.innerHTML = '<p class="timer">Inbox is empty.</p>';
   }
-  data.inbox_dirs.forEach((path) => {
+
+  data.inbox_dirs.forEach((dirInfo) => {
+    const isObj = typeof dirInfo === "object" && dirInfo !== null;
+    const path = isObj ? dirInfo.path : dirInfo;
+    const imported = isObj ? !!dirInfo.imported : false;
+    const albumId = isObj ? dirInfo.album_id : null;
+    const inProgress = isObj ? !!dirInfo.in_progress : false;
+    const pendingReview = isObj ? !!dirInfo.pending_review : false;
+
     const card = document.createElement("div");
-    card.className = "card";
+    card.className = "card" + (imported ? " imported" : "");
+
+    let badgeHtml = "";
+    if (imported) {
+      badgeHtml = '<span class="badge imported">Imported</span> ';
+    } else if (inProgress) {
+      badgeHtml = '<span class="badge pending">In Progress</span> ';
+    } else if (pendingReview) {
+      badgeHtml = '<span class="badge pending">Pending Review</span> ';
+    }
+
+    let actionsHtml = "";
+    if (imported) {
+      actionsHtml = `
+        <button class="secondary" data-reimport>Re-import</button>
+        <button class="danger" data-delete>Delete from inbox</button>`;
+    } else if (inProgress || pendingReview) {
+      actionsHtml = `
+        <button disabled class="secondary">${inProgress ? "Searching Candidates…" : "Awaiting Review"}</button>`;
+    } else {
+      actionsHtml = `<button data-start>Start import</button>`;
+    }
+
     card.innerHTML = `
-      <div class="path">${path}</div>
+      <div class="path">${badgeHtml}${escapeHtml(path)}</div>
       <div class="row">
-        <button data-start>Start import</button>
+        ${actionsHtml}
       </div>`;
-    card.querySelector("[data-start]").addEventListener("click", async () => {
-      await api("/api/inbox/start", {
-        method: "POST",
-        body: JSON.stringify({ paths: [path] }),
+
+    if (imported) {
+      card.querySelector("[data-reimport]").addEventListener("click", () => {
+        if (albumId) openReimport([albumId]);
+        else showToast("Album ID not available for reimport.", "error");
       });
-      loadInbox();
-    });
+      card.querySelector("[data-delete]").addEventListener("click", async () => {
+        if (!confirm(`Delete "${path}" from inbox?`)) return;
+        try {
+          await api("/api/inbox/delete", {
+            method: "POST",
+            body: JSON.stringify({ path }),
+          });
+          showToast(`Deleted "${path}" from inbox.`, "success");
+          loadInbox();
+        } catch (err) {
+          showToast(`Failed to delete: ${err.message}`, "error");
+        }
+      });
+    } else if (!inProgress && !pendingReview) {
+      const startBtn = card.querySelector("[data-start]");
+      startBtn.addEventListener("click", async () => {
+        startBtn.disabled = true;
+        startBtn.textContent = "Starting…";
+        try {
+          await api("/api/inbox/start", {
+            method: "POST",
+            body: JSON.stringify({ paths: [path] }),
+          });
+          showToast(`Started candidate search for ${path}`, "info", 3000);
+          loadInbox();
+        } catch (err) {
+          showToast(`Failed to start import: ${err.message}`, "error");
+          startBtn.disabled = false;
+          startBtn.textContent = "Start import";
+        }
+      });
+    }
+
     dirsEl.appendChild(card);
   });
 
   const pendingEl = $("#pending-reviews");
   pendingEl.innerHTML = "";
+  if (data.pending_review.length === 0) {
+    pendingEl.innerHTML = '<p class="timer">No items pending review.</p>';
+  }
   data.pending_review.forEach((pr) => {
     const card = document.createElement("div");
     card.className = "card";
+    const statusText = pr.kind === "duplicate" ? "Possible duplicate" : "Candidates ready for review";
+
     card.innerHTML = `
-      <div class="path">${pr.path}</div>
-      <div>${pr.kind === "duplicate" ? "Possible duplicate" : "Awaiting candidate review"}</div>
+      <div class="path">${escapeHtml(pr.path)}</div>
+      <div style="margin: 6px 0; font-size: 13px;">${statusText}</div>
       <button data-review>Review</button>`;
     card.querySelector("[data-review]").addEventListener("click", () => openReview(pr));
     pendingEl.appendChild(card);
@@ -132,7 +316,7 @@ async function openReview(pr) {
   if (pr.kind === "duplicate") return openDuplicateReview(pr);
 
   const container = document.createElement("div");
-  container.innerHTML = `<h3>${pr.path}</h3>`;
+  container.innerHTML = `<h3>${escapeHtml(pr.path)}</h3>`;
   const list = document.createElement("div");
   container.appendChild(list);
 
@@ -145,8 +329,8 @@ async function openReview(pr) {
       div.className = "candidate" + (focusedIndex === i ? " focused" : "");
       const artistAlbum = c.album ? `${c.artist} – ${c.album}` : `${c.artist} – ${c.title}`;
       div.innerHTML = `
-        <div>${artistAlbum} ${c.year ? `(${c.year})` : ""}</div>
-        <div class="dist">distance ${c.distance} · ${c.data_source || "?"}</div>
+        <div>${escapeHtml(artistAlbum)} ${c.year ? `(${c.year})` : ""}</div>
+        <div class="dist">distance ${c.distance} · ${escapeHtml(c.data_source || "?")}</div>
         <div class="art-compare" data-art></div>
         <div class="row">
           <button data-select>Select</button>
@@ -155,14 +339,20 @@ async function openReview(pr) {
         if (focusedIndex !== i) {
           focusedIndex = i;
           renderCandidates();
-          loadArtCompare(div, pr, c);
+          loadArtCompare($(".candidate.focused", list), pr, c);
         }
       });
       div.querySelector("[data-select]").addEventListener("click", async (e) => {
         e.stopPropagation();
-        await decide(pr.task_id, { action: "select", index: i });
-        backdrop.remove();
-        loadInbox();
+        const toast = createProgressToast(`Applying import for ${pr.path}…`);
+        try {
+          await decide(pr.task_id, { action: "select", index: i });
+          backdrop.close();
+          loadInbox();
+          toast.done(`Import applied successfully for ${pr.path}!`);
+        } catch (err) {
+          toast.error(`Apply failed: ${err.message}`);
+        }
       });
       list.appendChild(div);
     });
@@ -182,80 +372,162 @@ async function openReview(pr) {
     <button data-use-id>Use ID</button>
     <button class="secondary" data-asis>Use as-is</button>
     <button class="danger" data-skip>Skip</button>`;
+
   idRow.querySelector("[data-use-id]").addEventListener("click", async () => {
     const raw = idRow.querySelector("[data-mbid]").value.trim();
     const id = raw.split("/").pop();
     if (!id) return;
-    await decide(pr.task_id, { action: "search_id", search_id: id });
-    backdrop.remove();
-    loadInbox();
+    const toast = createProgressToast(`Searching candidate with ID ${id}…`);
+    try {
+      await decide(pr.task_id, { action: "search_id", search_id: id });
+      backdrop.close();
+      loadInbox();
+      toast.done(`Candidate lookup updated.`);
+    } catch (err) {
+      toast.error(`Search failed: ${err.message}`);
+    }
   });
-  idRow.querySelector("[data-asis]").addEventListener("click", async () => {
-    await decide(pr.task_id, { action: "asis" });
-    backdrop.remove();
-    loadInbox();
-  });
-  idRow.querySelector("[data-skip]").addEventListener("click", async () => {
-    await decide(pr.task_id, { action: "skip" });
-    backdrop.remove();
-    loadInbox();
-  });
-  container.appendChild(idRow);
 
+  idRow.querySelector("[data-asis]").addEventListener("click", async () => {
+    const toast = createProgressToast(`Applying import as-is for ${pr.path}…`);
+    try {
+      await decide(pr.task_id, { action: "asis" });
+      backdrop.close();
+      loadInbox();
+      toast.done(`Imported as-is.`);
+    } catch (err) {
+      toast.error(`Apply failed: ${err.message}`);
+    }
+  });
+
+  idRow.querySelector("[data-skip]").addEventListener("click", async () => {
+    try {
+      await decide(pr.task_id, { action: "skip" });
+      backdrop.close();
+      loadInbox();
+      showToast(`Skipped ${pr.path}`, "info");
+    } catch (err) {
+      showToast(`Skip failed: ${err.message}`, "error");
+    }
+  });
+
+  container.appendChild(idRow);
   var backdrop = openModal(container);
 }
 
 async function loadArtCompare(candidateEl, pr, candidate) {
+  if (!candidateEl) return;
   const holder = candidateEl.querySelector("[data-art]");
-  holder.innerHTML = '<span class="timer">Resolving art…</span>';
-  try {
-    const result = await api("/api/coverart/resolve", {
-      method: "POST",
-      body: JSON.stringify({
-        item_dir: pr.path,
-        release_mbid: candidate.album_id,
-        release_group_mbid: null,
-      }),
-    });
-    if (result.unavailable && !result.source_url && !result.resolved_url) {
-      holder.innerHTML =
-        '<span class="timer">art service unavailable — try again</span>';
-      return;
+  if (!holder) return;
+
+  const maxRetries = 2;
+  let attempt = 0;
+
+  async function tryFetch() {
+    if (attempt === 0) {
+      holder.innerHTML = '<span class="spinner"></span> <span class="timer">Resolving art…</span>';
+    } else {
+      holder.innerHTML = `<span class="spinner"></span> <span class="timer">Retrying art lookup (${attempt}/${maxRetries})…</span>`;
     }
-    holder.innerHTML = `
-      ${result.source_url ? `<img src="${result.source_url}" alt="source" />` : "<span>no source art</span>"}
-      ${result.resolved_url ? `<img src="${result.resolved_url}" alt="resolved" />` : "<span>no resolved art</span>"}
-      <span class="art-badge ${result.match ? "match" : "mismatch"}">${result.match ? "match" : "differs"}</span>`;
-  } catch {
-    holder.innerHTML = '<span class="timer">art preview unavailable</span>';
+
+    try {
+      const result = await api("/api/coverart/resolve", {
+        method: "POST",
+        body: JSON.stringify({
+          item_dir: pr.path,
+          release_mbid: candidate.album_id,
+          release_group_mbid: null,
+        }),
+      });
+
+      if (result.unavailable && !result.source_url && !result.resolved_url) {
+        if (attempt < maxRetries) {
+          attempt++;
+          const delay = attempt === 1 ? 1500 : 3000;
+          setTimeout(tryFetch, delay);
+          return;
+        }
+        renderRetryFallback();
+        return;
+      }
+
+      holder.innerHTML = `
+        ${result.source_url ? `<img src="${result.source_url}" alt="source" />` : "<span>no source art</span>"}
+        ${result.resolved_url ? `<img src="${result.resolved_url}" alt="resolved" />` : "<span>no resolved art</span>"}
+        <span class="art-badge ${result.match ? "match" : "mismatch"}">${result.match ? "match" : "differs"}</span>`;
+    } catch (err) {
+      if (attempt < maxRetries) {
+        attempt++;
+        const delay = attempt === 1 ? 1500 : 3000;
+        setTimeout(tryFetch, delay);
+        return;
+      }
+      renderRetryFallback();
+    }
   }
+
+  function renderRetryFallback() {
+    holder.innerHTML = `
+      <div class="art-unavailable">
+        <span class="timer">art service unavailable</span>
+        <button class="art-preview-retry secondary">Retry lookup</button>
+      </div>`;
+    holder.querySelector(".art-preview-retry")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      attempt = 0;
+      tryFetch();
+    });
+  }
+
+  tryFetch();
 }
 
 async function openDuplicateReview(pr) {
   const container = document.createElement("div");
   container.innerHTML = `
-    <h3>Possible duplicate — ${pr.path}</h3>
-    <ul>${pr.payload.duplicates.map((d) => `<li>${d.album}</li>`).join("")}</ul>
+    <h3>Possible duplicate — ${escapeHtml(pr.path)}</h3>
+    <ul>${pr.payload.duplicates.map((d) => `<li>${escapeHtml(d.album)}</li>`).join("")}</ul>
     <div class="row">
       <button data-keep-both>Keep both</button>
       <button class="secondary" data-remove-old>Replace existing</button>
       <button class="danger" data-skip>Skip new</button>
     </div>`;
+
   container.querySelector("[data-keep-both]").addEventListener("click", async () => {
-    await decide(pr.task_id, { action: "keep_both" });
-    backdrop.remove();
-    loadInbox();
+    const toast = createProgressToast("Applying decision: keep both…");
+    try {
+      await decide(pr.task_id, { action: "keep_both" });
+      backdrop.close();
+      loadInbox();
+      toast.done("Saved (keeping both).");
+    } catch (err) {
+      toast.error(`Decision failed: ${err.message}`);
+    }
   });
+
   container.querySelector("[data-remove-old]").addEventListener("click", async () => {
-    await decide(pr.task_id, { action: "remove_old" });
-    backdrop.remove();
-    loadInbox();
+    const toast = createProgressToast("Applying decision: replacing existing…");
+    try {
+      await decide(pr.task_id, { action: "remove_old" });
+      backdrop.close();
+      loadInbox();
+      toast.done("Replaced existing album.");
+    } catch (err) {
+      toast.error(`Decision failed: ${err.message}`);
+    }
   });
+
   container.querySelector("[data-skip]").addEventListener("click", async () => {
-    await decide(pr.task_id, { action: "skip" });
-    backdrop.remove();
-    loadInbox();
+    try {
+      await decide(pr.task_id, { action: "skip" });
+      backdrop.close();
+      loadInbox();
+      showToast("Skipped duplicate import.", "info");
+    } catch (err) {
+      showToast(`Decision failed: ${err.message}`, "error");
+    }
   });
+
   var backdrop = openModal(container);
 }
 
@@ -268,7 +540,14 @@ function decide(taskId, decision) {
 
 // ===================== UNDO ============================================
 async function loadUndo() {
-  const records = await api("/api/undo");
+  let records;
+  try {
+    records = await api("/api/undo");
+  } catch (err) {
+    showToast(`Failed to load undo items: ${err.message}`, "error");
+    return;
+  }
+
   const el = $("#undo-list");
   el.innerHTML = "";
   if (records.length === 0) el.innerHTML = '<p class="timer">Nothing pending undo.</p>';
@@ -276,12 +555,17 @@ async function loadUndo() {
     const card = document.createElement("div");
     card.className = "card";
     card.innerHTML = `
-      <div>${r.label}</div>
+      <div>${escapeHtml(r.label)}</div>
       <div class="timer">Undoable for ${r.seconds_remaining}s</div>
       <button class="danger" data-undo>Undo</button>`;
     card.querySelector("[data-undo]").addEventListener("click", async () => {
-      await api(`/api/undo/${r.record_id}`, { method: "POST" });
-      loadUndo();
+      try {
+        await api(`/api/undo/${r.record_id}`, { method: "POST" });
+        showToast(`Undid import: ${r.label}`, "success");
+        loadUndo();
+      } catch (err) {
+        showToast(`Undo failed: ${err.message}`, "error");
+      }
     });
     el.appendChild(card);
   });
@@ -291,27 +575,54 @@ async function loadUndo() {
 let selectedAlbumIds = new Set();
 
 async function loadLibrary(q = "") {
-  const albums = await api(`/api/library/albums?q=${encodeURIComponent(q)}`);
+  let albums;
+  try {
+    albums = await api(`/api/library/albums?q=${encodeURIComponent(q)}`);
+  } catch (err) {
+    showToast(`Failed to search library: ${err.message}`, "error");
+    return;
+  }
+
   const grid = $("#album-grid");
   grid.innerHTML = "";
+
+  if (albums.length === 0) {
+    const emptyEl = document.createElement("div");
+    emptyEl.className = "empty-state muted";
+    const trimmed = q.trim();
+    if (trimmed) {
+      emptyEl.innerHTML = `No albums matching &ldquo;${escapeHtml(trimmed)}&rdquo; found.`;
+    } else {
+      emptyEl.textContent = "No albums in library.";
+    }
+    grid.appendChild(emptyEl);
+    return;
+  }
+
   albums.forEach((a) => {
     const tile = document.createElement("div");
     tile.className = "album-tile grabbable";
     tile.innerHTML = `
-      <img src="/api/library/albums/${a.id}/art" onerror="this.style.visibility='hidden'" />
-      <span class="lib-badge">${a.navidrome_library || "unassigned"}</span>
+      <div class="art-wrap">
+        <img src="/api/library/albums/${a.id}/art" onerror="this.parentElement.classList.add('no-art')" />
+        <div class="art-placeholder"><span>No Art</span></div>
+      </div>
+      <span class="lib-badge">${escapeHtml(a.navidrome_library || "unassigned")}</span>
       <input type="checkbox" data-select />
-      <div class="meta">${a.albumartist}<br/>${a.album}</div>`;
+      <div class="meta">${escapeHtml(a.albumartist)}<br/>${escapeHtml(a.album)}</div>`;
+
     tile.querySelector("[data-select]").addEventListener("click", (e) => {
       e.stopPropagation();
       if (e.target.checked) selectedAlbumIds.add(a.id);
       else selectedAlbumIds.delete(a.id);
       updateBulkBar();
     });
+
     tile.addEventListener("click", (e) => {
       if (e.target.tagName === "INPUT") return;
       openAlbumDetail(a.id);
     });
+
     attachLongPress(tile, () => [
       { label: "Set navidrome_library…", onClick: () => promptSetLibrary([a.id]) },
       { label: "Reimport / reassign MBID…", onClick: () => openReimport([a.id]) },
@@ -326,34 +637,46 @@ function updateBulkBar() {
   $("#bulk-count").textContent = `${selectedAlbumIds.size} selected`;
 }
 
-$("#bulk-apply").addEventListener("click", () => promptSetLibrary([...selectedAlbumIds]));
+$("#bulk-apply")?.addEventListener("click", () => promptSetLibrary([...selectedAlbumIds]));
 
 async function promptSetLibrary(albumIds) {
   const value = prompt("navidrome_library value (e.g. kids, worship, holiday, talkradio):");
   if (!value) return;
-  await api("/api/library/albums/bulk_fields", {
-    method: "POST",
-    body: JSON.stringify({ album_ids: albumIds, field: "navidrome_library", value, move: true }),
-  });
-  selectedAlbumIds.clear();
-  updateBulkBar();
-  loadLibrary($("#lib-search").value);
+  try {
+    await api("/api/library/albums/bulk_fields", {
+      method: "POST",
+      body: JSON.stringify({ album_ids: albumIds, field: "navidrome_library", value, move: true }),
+    });
+    showToast(`Updated navidrome_library on ${albumIds.length} album(s).`, "success");
+    selectedAlbumIds.clear();
+    updateBulkBar();
+    loadLibrary($("#lib-search").value);
+  } catch (err) {
+    showToast(`Failed to update field: ${err.message}`, "error");
+  }
 }
 
 let searchDebounce;
-$("#lib-search").addEventListener("input", (e) => {
+$("#lib-search")?.addEventListener("input", (e) => {
   clearTimeout(searchDebounce);
   searchDebounce = setTimeout(() => loadLibrary(e.target.value), 300);
 });
 
 async function openAlbumDetail(albumId) {
-  const detail = await api(`/api/library/albums/${albumId}`);
+  let detail;
+  try {
+    detail = await api(`/api/library/albums/${albumId}`);
+  } catch (err) {
+    showToast(`Failed to load album details: ${err.message}`, "error");
+    return;
+  }
+
   const container = document.createElement("div");
   container.innerHTML = `
-    <h3>${detail.fields.albumartist} – ${detail.fields.album}</h3>
+    <h3>${escapeHtml(detail.fields.albumartist)} – ${escapeHtml(detail.fields.album)}</h3>
     <div class="row">
       <label>navidrome_library
-        <input type="text" data-field="navidrome_library" value="${detail.fields.navidrome_library || ""}" />
+        <input type="text" data-field="navidrome_library" value="${escapeHtml(detail.fields.navidrome_library || "")}" />
       </label>
       <button data-save-album>Save (auto-move if path changes)</button>
       <button class="secondary" data-reimport>Reimport…</button>
@@ -363,15 +686,21 @@ async function openAlbumDetail(albumId) {
 
   container.querySelector("[data-save-album]").addEventListener("click", async () => {
     const value = container.querySelector('[data-field="navidrome_library"]').value;
-    await api(`/api/library/albums/${albumId}/fields`, {
-      method: "POST",
-      body: JSON.stringify({ fields: { navidrome_library: value }, move: true }),
-    });
-    backdrop.remove();
-    loadLibrary($("#lib-search").value);
+    try {
+      await api(`/api/library/albums/${albumId}/fields`, {
+        method: "POST",
+        body: JSON.stringify({ fields: { navidrome_library: value }, move: true }),
+      });
+      showToast("Album saved.", "success");
+      backdrop.close();
+      loadLibrary($("#lib-search").value);
+    } catch (err) {
+      showToast(`Save failed: ${err.message}`, "error");
+    }
   });
+
   container.querySelector("[data-reimport]").addEventListener("click", () => {
-    backdrop.remove();
+    backdrop.close();
     openReimport([albumId]);
   });
 
@@ -379,7 +708,7 @@ async function openAlbumDetail(albumId) {
   detail.tracks.forEach((t) => {
     const row = document.createElement("div");
     row.className = "card grabbable";
-    row.innerHTML = `${t.track}. ${t.title}`;
+    row.innerHTML = `${escapeHtml(t.track ? String(t.track) : "")}. ${escapeHtml(t.title)}`;
     attachLongPress(row, () => [
       { label: "Apply tag…", onClick: () => promptApplyTag("item", t.id) },
     ]);
@@ -420,17 +749,23 @@ async function openReimport(albumIds) {
     const libValue = container.querySelector("[data-setlib]").value.trim();
     const setFields = libValue ? { navidrome_library: libValue } : {};
 
-    await api("/api/reimport", {
-      method: "POST",
-      body: JSON.stringify({
-        album_ids: albumIds,
-        search_id: searchId,
-        from_scratch: fromScratch,
-        set_fields: setFields,
-      }),
-    });
-    backdrop.remove();
-    document.querySelector('#tabs button[data-tab="inbox"]').click();
+    const toast = createProgressToast(`Starting reimport for ${albumIds.length} album(s)…`);
+    try {
+      await api("/api/reimport", {
+        method: "POST",
+        body: JSON.stringify({
+          album_ids: albumIds,
+          search_id: searchId,
+          from_scratch: fromScratch,
+          set_fields: setFields,
+        }),
+      });
+      backdrop.close();
+      toast.done("Reimport queued. Check Inbox tab.");
+      document.querySelector('#tabs button[data-tab="inbox"]').click();
+    } catch (err) {
+      toast.error(`Reimport failed: ${err.message}`);
+    }
   });
 
   var backdrop = openModal(container);
@@ -438,14 +773,21 @@ async function openReimport(albumIds) {
 
 // ===================== TAGS ============================================
 async function loadTags() {
-  const data = await api("/api/tags");
+  let data;
+  try {
+    data = await api("/api/tags");
+  } catch (err) {
+    showToast(`Failed to load tags: ${err.message}`, "error");
+    return;
+  }
+
   const el = $("#tag-fields");
   el.innerHTML = "";
   Object.entries(data).forEach(([field, values]) => {
     const card = document.createElement("div");
     card.className = "card";
     card.innerHTML = `
-      <h3>${field}</h3>
+      <h3>${escapeHtml(field)}</h3>
       <div class="tags-values"></div>
       <div class="row">
         <input type="text" placeholder="new value" data-new />
@@ -471,19 +813,27 @@ async function loadTags() {
     card.querySelector("[data-add]").addEventListener("click", async () => {
       const val = card.querySelector("[data-new]").value.trim();
       if (!val) return;
-      await api(`/api/tags/${field}`, { method: "POST", body: JSON.stringify({ value: val }) });
-      loadTags();
+      try {
+        await api(`/api/tags/${field}`, { method: "POST", body: JSON.stringify({ value: val }) });
+        loadTags();
+      } catch (err) {
+        showToast(`Failed to add tag value: ${err.message}`, "error");
+      }
     });
     el.appendChild(card);
   });
 }
 
 async function applyTag(field, value, scope, id) {
-  await api(`/api/tags/${field}/apply`, {
-    method: "POST",
-    body: JSON.stringify({ value, scope, id, add: true }),
-  });
-  alert("Applied.");
+  try {
+    await api(`/api/tags/${field}/apply`, {
+      method: "POST",
+      body: JSON.stringify({ value, scope, id, add: true }),
+    });
+    showToast(`Applied ${field}="${value}" to ${scope} #${id}`, "success");
+  } catch (err) {
+    showToast(`Failed to apply tag: ${err.message}`, "error");
+  }
 }
 
 function promptApplyTag(scope, id) {
@@ -497,6 +847,6 @@ function promptApplyTag(scope, id) {
 // -- init ---------------------------------------------------------------
 loadInbox();
 setInterval(() => {
-  if ($("#tab-inbox").classList.contains("active")) loadInbox();
-  if ($("#tab-undo").classList.contains("active")) loadUndo();
+  if ($("#tab-inbox")?.classList.contains("active")) loadInbox();
+  if ($("#tab-undo")?.classList.contains("active")) loadUndo();
 }, 5000);

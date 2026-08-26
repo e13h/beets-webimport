@@ -1,6 +1,6 @@
 # 25: "Awaiting candidate review" has no in-progress indicator during lookup
 
-Status: ready-for-agent
+Status: done
 
 **Category:** enhancement
 **Source:** UX walkthrough session (Playwright MCP, browser-driven, per
@@ -52,10 +52,10 @@ When an inbox folder is submitted for import, the Pending Review card renders st
 - `style.css` (progress bar / spinner styling).
 
 **Acceptance criteria:**
-- [ ] The agent investigates beets candidate lookup introspection capabilities and documents the findings.
-- [ ] If request/lookup step counts are introspectable, the Pending Review card shows a percentage or step count progress bar.
-- [ ] If step counts are not introspectable, an animated spinner with active status text is displayed.
-- [ ] When candidate lookup finishes and the review decision is ready, the progress indicator transitions to the actionable "Review" button.
+- [x] The agent investigates beets candidate lookup introspection capabilities and documents the findings.
+- [x] If request/lookup step counts are introspectable, the Pending Review card shows a percentage or step count progress bar.
+- [x] If step counts are not introspectable, an animated spinner with active status text is displayed.
+- [x] When candidate lookup finishes and the review decision is ready, the progress indicator transitions to the actionable "Review" button.
 
 **Out of scope:**
 - Modifying upstream beets plugin lookup algorithms.
