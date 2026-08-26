@@ -11,10 +11,10 @@ fourth resolution shape.
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] A metadata edit (single field, single track/album, or bulk) that would trigger Move-on-Field-Change to a destination already occupied by an unrelated file (not resolved by `%aunique{}`) surfaces a decision prompt in the UI before any file is moved.
-- [ ] The prompt offers skip / overwrite / keep-both, matching the decision shape already used for duplicate handling during import.
-- [ ] Choosing "skip" leaves both the edit and the file in place unchanged (or reverts the edit — clarify with the user which is expected before finalizing behavior).
-- [ ] Choosing "overwrite" or "keep both" produces the expected filesystem result, verified end-to-end.
-- [ ] Covered by a Playwright playbook exercising a real collision scenario.
+- [x] A metadata edit (single field, single track/album, or bulk) that would trigger Move-on-Field-Change to a destination already occupied by an unrelated file (not resolved by `%aunique{}`) surfaces a decision prompt in the UI before any file is moved.
+- [x] The prompt offers skip / overwrite / keep-both, matching the decision shape already used for duplicate handling during import.
+- [x] Choosing "skip" leaves both the edit and the file in place unchanged (reverts the edit in the database and preserves original files).
+- [x] Choosing "overwrite" or "keep both" produces the expected filesystem result, verified end-to-end.
+- [x] Covered by a Playwright playbook exercising a real collision scenario (`docs/playbooks/15-placement-conflict-ui.md`).

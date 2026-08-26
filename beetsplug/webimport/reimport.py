@@ -55,20 +55,27 @@ def run_reimport(
     a fresh inbox import."""
     query_str = _build_query(album_ids)
 
-    with _temporary_import_config(from_scratch, set_fields):
-        session = WebImportSession(
-            lib,
-            loghandler,
-            paths=None,
-            query=query_str,
-            review_manager=review_manager,
-            config=None,
-            apply_lock=apply_lock,
-        )
-        if search_id:
-            session.preset_search_id = search_id  # consumed by choose_match on first pass
-        try:
+    lock_acquired = False
+    if apply_lock is not None:
+        apply_lock.acquire()
+        lock_acquired = True
+
+    try:
+        with _temporary_import_config(from_scratch, set_fields):
+            session = WebImportSession(
+                lib,
+                loghandler,
+                paths=None,
+                query=query_str,
+                review_manager=review_manager,
+                config=None,
+                apply_lock=apply_lock,
+            )
+            if lock_acquired:
+                session._lock_acquired = True
+            if search_id:
+                session.preset_search_id = search_id  # consumed by choose_match on first pass
             session.run()
-        finally:
-            if getattr(session, "_lock_acquired", False) and apply_lock is not None:
-                apply_lock.release()
+    finally:
+        if lock_acquired:
+            apply_lock.release()

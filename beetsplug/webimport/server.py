@@ -47,17 +47,19 @@ def create_app(lib, wi_config, plugin):
     grace = GracePeriodManager(lib, wi_config["grace_period_seconds"].get(int))
     pool = InboxWorkerPool(wi_config["candidate_search_workers"].get(int))
 
+    try:
+        data_dir = Path(beets_config.config_dir()) / "webimport"
+    except Exception:
+        import tempfile
+
+        data_dir = Path(tempfile.gettempdir()) / "webimport"
+
     tag_store_cfg = wi_config.get("tag_store_path") if isinstance(wi_config, dict) else None
     if tag_store_cfg:
         tag_store = tags.TagStore(Path(tag_store_cfg.get(str)))
     else:
-        try:
-            data_dir = Path(beets_config.config_dir()) / "webimport"
-        except Exception:
-            import tempfile
-
-            data_dir = Path(tempfile.gettempdir()) / "webimport"
         tag_store = tags.TagStore(data_dir / "tags.json")
+    thumbs_dir = data_dir / "thumbs"
     for field in wi_config["tag_fields"].get(list):
         tag_store.add_field(field)
 
@@ -74,6 +76,7 @@ def create_app(lib, wi_config, plugin):
             album.id,
             f"{album.albumartist} - {album.album}",
             inbox_path=inbox_path,
+            is_staging_bin=bool(inbox_path and "_grouped" in str(inbox_path)),
         )
 
     def _on_item_imported(lib, item):
@@ -83,6 +86,7 @@ def create_app(lib, wi_config, plugin):
             item.id,
             f"{item.artist} - {item.title}",
             inbox_path=inbox_path,
+            is_staging_bin=bool(inbox_path and "_grouped" in str(inbox_path)),
         )
 
     plugin.register_listener("album_imported", _on_album_imported)
@@ -129,47 +133,59 @@ def create_app(lib, wi_config, plugin):
     def api_inbox_list():
         """Lists album-sized directories under the inbox with import
         status and pending review status."""
+        grace.prune_expired()
         found = []
         base = Path(inbox_dir)
         running_paths = pool.running_paths()
         pending_list = review_manager.list_pending()
         pending_paths = {pr["path"] for pr in pending_list}
 
+        def _add_dir(sub: Path):
+            path_str = str(sub)
+            marker_file = sub / ".webimport_imported"
+            imported = False
+            album_id = None
+            imported_at = None
+            staging_bin = "_grouped" in path_str
+            if marker_file.exists():
+                try:
+                    import json
+
+                    m_data = json.loads(marker_file.read_text(encoding="utf-8"))
+                    imported = True
+                    album_id = m_data.get("album_id")
+                    imported_at = m_data.get("imported_at")
+                    if "staging_bin" in m_data:
+                        staging_bin = m_data.get("staging_bin", staging_bin)
+                except Exception:
+                    imported = True
+
+            is_in_progress = path_str in running_paths
+            is_pending_review = path_str in pending_paths
+
+            found.append(
+                {
+                    "path": path_str,
+                    "imported": imported,
+                    "album_id": album_id,
+                    "imported_at": imported_at,
+                    "staging_bin": staging_bin,
+                    "in_progress": is_in_progress,
+                    "pending_review": is_pending_review,
+                }
+            )
+
         if base.is_dir():
             for sub in sorted(base.iterdir()):
                 if sub.is_dir():
-                    path_str = str(sub)
-                    marker_file = sub / ".webimport_imported"
-                    imported = False
-                    album_id = None
-                    imported_at = None
-                    staging_bin = False
-                    if marker_file.exists():
-                        try:
-                            import json
-
-                            m_data = json.loads(marker_file.read_text(encoding="utf-8"))
-                            imported = True
-                            album_id = m_data.get("album_id")
-                            imported_at = m_data.get("imported_at")
-                            staging_bin = m_data.get("staging_bin", False)
-                        except Exception:
-                            imported = True
-
-                    is_in_progress = path_str in running_paths
-                    is_pending_review = path_str in pending_paths
-
-                    found.append(
-                        {
-                            "path": path_str,
-                            "imported": imported,
-                            "album_id": album_id,
-                            "imported_at": imported_at,
-                            "staging_bin": staging_bin,
-                            "in_progress": is_in_progress,
-                            "pending_review": is_pending_review,
-                        }
-                    )
+                    if sub.name == "_grouped":
+                        for grp in sorted(sub.iterdir()):
+                            if grp.is_dir():
+                                for bin_dir in sorted(grp.iterdir()):
+                                    if bin_dir.is_dir():
+                                        _add_dir(bin_dir)
+                    else:
+                        _add_dir(sub)
         return jsonify(
             {
                 "inbox_dirs": found,
@@ -280,6 +296,10 @@ def create_app(lib, wi_config, plugin):
         return jsonify({"ok": ok})
 
     # -- library browse / edit -------------------------------------------
+    @app.get("/api/library/listening_groups")
+    def api_library_listening_groups():
+        return jsonify(library.get_listening_groups(lib))
+
     @app.get("/api/library/albums")
     def api_library_albums():
         q = request.args.get("q", "")
@@ -295,32 +315,48 @@ def create_app(lib, wi_config, plugin):
     @app.get("/api/library/albums/<int:album_id>/art")
     def api_library_album_art(album_id):
         album = lib.get_album(album_id)
-        if album is None or not album.artpath:
+        if album is None:
             return "", 404
-        art_path = Path(syspath(album.artpath))
-        return send_from_directory(art_path.parent, art_path.name)
+        thumb = request.args.get("thumb") in ("1", "true", "yes")
+        data, mime_type = coverart.get_album_art_data(
+            album, cache_dir=thumbs_dir, thumb=thumb
+        )
+        if data is None:
+            return "", 404
+        from flask import Response
+
+        return Response(data, mimetype=mime_type)
 
     @app.post("/api/library/albums/<int:album_id>/fields")
     @_safe
     def api_library_album_set_fields(album_id):
         body = request.get_json(force=True)
-        ok = library.set_album_fields(
-            lib, album_id, body.get("fields", {}), move=body.get("move", True)
+        res = library.set_album_fields(
+            lib,
+            album_id,
+            body.get("fields", {}),
+            move=body.get("move", True),
+            conflict_resolution=body.get("conflict_resolution"),
         )
-        return jsonify({"ok": ok})
+        if res.get("conflict"):
+            return jsonify(res), 409
+        return jsonify(res)
 
     @app.post("/api/library/albums/bulk_fields")
     @_safe
     def api_library_bulk_fields():
         body = request.get_json(force=True)
-        updated = library.bulk_set_field(
+        res = library.bulk_set_field(
             lib,
             body["album_ids"],
             body["field"],
             body["value"],
             move=body.get("move", True),
+            conflict_resolution=body.get("conflict_resolution"),
         )
-        return jsonify({"updated": updated})
+        if res.get("conflict"):
+            return jsonify(res), 409
+        return jsonify(res)
 
     @app.get("/api/library/items/<int:item_id>")
     def api_library_item_detail(item_id):
@@ -333,10 +369,16 @@ def create_app(lib, wi_config, plugin):
     @_safe
     def api_library_item_set_fields(item_id):
         body = request.get_json(force=True)
-        ok = library.set_item_fields(
-            lib, item_id, body.get("fields", {}), move=body.get("move", True)
+        res = library.set_item_fields(
+            lib,
+            item_id,
+            body.get("fields", {}),
+            move=body.get("move", True),
+            conflict_resolution=body.get("conflict_resolution"),
         )
-        return jsonify({"ok": ok})
+        if res.get("conflict"):
+            return jsonify(res), 409
+        return jsonify(res)
 
     # -- tags -------------------------------------------------------------
     @app.get("/api/tags")

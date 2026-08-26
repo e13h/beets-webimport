@@ -96,3 +96,124 @@ def test_undo_unknown_or_already_consumed_id(lib: Library):
 
     # Arbitrary random record fails
     assert mgr.undo("nonexistent-record-id") is False
+
+
+def test_staging_bin_survives_immediately_after_apply(lib: Library, tmp_path: Path):
+    bin_dir = tmp_path / "inbox" / "_grouped" / "grp123" / "bin_0"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    audio_file = bin_dir / "track.wav"
+    audio_file.write_text("audio")
+
+    mgr = GracePeriodManager(lib, grace_period_seconds=600)
+    _ = mgr.register(
+        "album",
+        1,
+        "Artist - Album",
+        inbox_path=str(bin_dir),
+        is_staging_bin=True,
+    )
+
+    # Immediately after apply / register, bin and files still exist untouched
+    assert bin_dir.exists()
+    assert audio_file.exists()
+    assert len(mgr.list_undoable()) == 1
+
+
+def test_staging_bin_preserved_if_undone_within_grace_period(
+    lib: Library, tmp_path: Path, create_wav_file
+):
+    # Setup library files & album
+    music_file = create_wav_file(tmp_path / "music" / "Artist" / "Album" / "track.wav")
+    item = Item.from_path(str(music_file))
+    lib.add(item)
+    album = lib.add_album([item])
+    assert album.id is not None
+
+    # Setup staging bin in inbox with marker
+    bin_dir = tmp_path / "inbox" / "_grouped" / "grp456" / "bin_0"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    inbox_file = bin_dir / "track.wav"
+    inbox_file.write_text("audio")
+    marker_file = bin_dir / ".webimport_imported"
+    marker_file.write_text("{}")
+
+    mgr = GracePeriodManager(lib, grace_period_seconds=10)
+    rec_id = mgr.register(
+        "album",
+        album.id,
+        "Artist - Album",
+        inbox_path=str(bin_dir),
+    )
+    # Staging bin flag is auto-inferred from _grouped in path
+    assert mgr._records[rec_id].is_staging_bin is True
+
+    # Perform undo within grace period
+    ok = mgr.undo(rec_id)
+    assert ok is True
+    assert lib.get_album(album.id) is None
+    assert not marker_file.exists()
+    assert bin_dir.exists()
+    assert inbox_file.exists()
+
+    # When time passes and pruning runs, staging bin remains preserved
+    mgr.prune_expired()
+    assert bin_dir.exists()
+    assert inbox_file.exists()
+
+
+def test_staging_bin_cleaned_up_on_grace_period_expiry(
+    lib: Library, tmp_path: Path
+):
+    group_dir = tmp_path / "inbox" / "_grouped" / "grp789"
+    bin_0 = group_dir / "bin_0"
+    bin_0.mkdir(parents=True, exist_ok=True)
+    (bin_0 / "track0.wav").write_text("audio0")
+
+    bin_1 = group_dir / "bin_1"
+    bin_1.mkdir(parents=True, exist_ok=True)
+    (bin_1 / "track1.wav").write_text("audio1")
+
+    mgr = GracePeriodManager(lib, grace_period_seconds=10)
+    rec_0 = mgr.register("album", 1, "Album 0", inbox_path=str(bin_0))
+    rec_1 = mgr.register("album", 2, "Album 1", inbox_path=str(bin_1))
+
+    # Backdate bin_0 past grace period, bin_1 remains active
+    mgr._records[rec_0].imported_at -= 20
+
+    mgr.prune_expired()
+    # bin_0 is removed on expiry
+    assert not bin_0.exists()
+    # bin_1 is still within grace period and preserved
+    assert bin_1.exists()
+    assert group_dir.exists()
+
+    # Now expire bin_1 as well
+    mgr._records[rec_1].imported_at -= 20
+    mgr.prune_expired()
+
+    # bin_1 is removed, and empty parent group_dir and _grouped are cleaned up
+    assert not bin_1.exists()
+    assert not group_dir.exists()
+    assert not (tmp_path / "inbox" / "_grouped").exists()
+
+
+def test_non_staging_inbox_folder_not_cleaned_up_on_expiry(
+    lib: Library, tmp_path: Path
+):
+    inbox_dir = tmp_path / "inbox" / "Standard Album"
+    inbox_dir.mkdir(parents=True, exist_ok=True)
+    track = inbox_dir / "track.wav"
+    track.write_text("audio")
+
+    mgr = GracePeriodManager(lib, grace_period_seconds=10)
+    rec_id = mgr.register("album", 1, "Standard Album", inbox_path=str(inbox_dir), is_staging_bin=False)
+
+    # Backdate past grace period
+    mgr._records[rec_id].imported_at -= 20
+
+    mgr.prune_expired()
+    # Undo record is pruned
+    assert mgr.list_undoable() == []
+    # Standard inbox directory and files remain intact
+    assert inbox_dir.exists()
+    assert track.exists()

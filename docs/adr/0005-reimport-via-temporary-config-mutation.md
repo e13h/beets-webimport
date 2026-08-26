@@ -9,10 +9,9 @@ apply-time metadata-clearing logic rather than reimplementing it.
 ## Consequences
 
 - Because `beets.config` is process-global and import review is otherwise
-  parallel across sessions, a reimport in flight on one thread can
-  transiently be observed by another thread's concurrent fresh-import
-  review while the override is active. This is a known, currently-unguarded
-  race; low priority to fix given single-user usage, but the fix (reimport
-  should hold a lock for its entire config-mutated duration, not only at
-  apply time) is understood and tracked as follow-up work rather than left
-  as a silent gap.
+  parallel across sessions, `run_reimport` acquires the global Apply Lock
+  *before* mutating `import.from_scratch` / `import.set_fields`, and releases
+  it only after the configuration is restored in a `finally` block (rather
+  than acquiring it only at apply time). This prevents concurrent fresh-import
+  review/apply operations on other worker threads from transiently observing
+  the reimport's mutated global configuration.

@@ -9,7 +9,50 @@ explicitly, which is what Item.move()/Album.move() do).
 from __future__ import annotations
 
 
+import os
+from pathlib import Path
+from beets.util import syspath
+
+
+def get_listening_groups(lib) -> list[str]:
+    """Returns distinct navidrome_library values present in the library."""
+    groups = set()
+    try:
+        with lib.transaction() as tx:
+            for row in tx.query(
+                "SELECT DISTINCT value FROM album_attributes WHERE key = 'navidrome_library' AND value IS NOT NULL AND value != ''"
+            ):
+                groups.add(row[0])
+            for row in tx.query(
+                "SELECT DISTINCT value FROM item_attributes WHERE key = 'navidrome_library' AND value IS NOT NULL AND value != ''"
+            ):
+                groups.add(row[0])
+    except Exception:
+        for a in lib.albums():
+            val = a.get("navidrome_library")
+            if val:
+                groups.add(val)
+        for i in lib.items():
+            val = i.get("navidrome_library")
+            if val:
+                groups.add(val)
+    return sorted(groups)
+
+
 def _album_summary(album) -> dict:
+    has_art = bool(album.artpath)
+    if not has_art:
+        # Check if embedded art exists
+        for item in album.items():
+            try:
+                import mediafile
+
+                mf = mediafile.MediaFile(syspath(item.path))
+                if mf.art:
+                    has_art = True
+                    break
+            except Exception:
+                pass
     return {
         "id": album.id,
         "albumartist": album.albumartist,
@@ -17,7 +60,7 @@ def _album_summary(album) -> dict:
         "year": album.year,
         "navidrome_library": album.get("navidrome_library", ""),
         "track_count": len(list(album.items())),
-        "has_art": bool(album.artpath),
+        "has_art": has_art,
     }
 
 
@@ -68,6 +111,8 @@ def _paths_would_change(obj) -> bool:
     (a no-op move is harmless, but this keeps intent explicit and cheap
     to short-circuit). Both `.destination()` and `.path` are bytes in
     beets' internal representation."""
+    if hasattr(obj, "items"):
+        return any(_paths_would_change(i) for i in obj.items())
     try:
         new_path = obj.destination()
     except Exception:
@@ -75,37 +120,217 @@ def _paths_would_change(obj) -> bool:
     return bytes(new_path) != bytes(obj.path)
 
 
-def set_album_fields(lib, album_id: int, fields: dict, move: bool = True) -> bool:
+def _paths_would_change_for_items(items) -> bool:
+    for item in items:
+        try:
+            new_path = item.destination()
+        except Exception:
+            return True
+        if bytes(new_path) != bytes(item.path):
+            return True
+    return False
+
+
+def set_album_fields(
+    lib,
+    album_id: int,
+    fields: dict,
+    move: bool = True,
+    conflict_resolution: str | None = None,
+) -> dict:
+    """Sets metadata fields on an album (and its items).
+    Detects Placement Conflicts when move=True and proposed file paths collide with existing files.
+    conflict_resolution can be 'skip', 'overwrite', or 'keep_both'.
+    """
     album = lib.get_album(album_id)
     if album is None:
-        return False
+        return {"ok": False, "error": "Album not found"}
+
+    old_album_fields = {k: album.get(k) for k in fields}
+    items = list(album.items())
+    old_items_fields = [{k: item.get(k) for k in fields} for item in items]
+
     for k, v in fields.items():
         album[k] = v
+        for item in items:
+            item[k] = v
+
+    if move and _paths_would_change_for_items(items):
+        conflicts = []
+        for item in items:
+            try:
+                new_dest = item.destination()
+            except Exception:
+                new_dest = item.path
+            dest_str = syspath(new_dest)
+            if bytes(new_dest) != bytes(item.path) and os.path.exists(dest_str):
+                conflicts.append(dest_str)
+
+        if conflicts:
+            if conflict_resolution is None:
+                # Conflict detected! Revert in-memory changes before returning
+                for k, v in old_album_fields.items():
+                    if v is None:
+                        del album[k]
+                    else:
+                        album[k] = v
+                for item, old_f in zip(items, old_items_fields):
+                    for k, v in old_f.items():
+                        if v is None:
+                            del item[k]
+                        else:
+                            item[k] = v
+                return {
+                    "ok": False,
+                    "conflict": True,
+                    "kind": "album",
+                    "id": album_id,
+                    "destination": conflicts[0],
+                    "destinations": conflicts,
+                    "message": f"Destination path '{conflicts[0]}' is already occupied.",
+                }
+            elif conflict_resolution == "skip":
+                # Revert changes in memory and ensure DB has original values
+                for k, v in old_album_fields.items():
+                    if v is None:
+                        del album[k]
+                    else:
+                        album[k] = v
+                album.store()
+                for item, old_f in zip(items, old_items_fields):
+                    for k, v in old_f.items():
+                        if v is None:
+                            del item[k]
+                        else:
+                            item[k] = v
+                    item.store()
+                return {"ok": True, "action": "skip", "reverted": True}
+            elif conflict_resolution == "overwrite":
+                for c in conflicts:
+                    if os.path.exists(c):
+                        try:
+                            os.remove(c)
+                        except OSError:
+                            pass
+                album.store()
+                for item in items:
+                    item.store()
+                album.move()
+                return {"ok": True, "action": "overwrite"}
+            elif conflict_resolution == "keep_both":
+                album.store()
+                for item in items:
+                    item.store()
+                album.move()
+                return {"ok": True, "action": "keep_both"}
+
     album.store()
+    for item in items:
+        item.store()
+    if move and _paths_would_change_for_items(items):
+        album.move()
+    return {"ok": True}
 
-    if move and _paths_would_change(album):
-        album.move()  # relocates every item per the paths: templates
 
-    return True
-
-
-def set_item_fields(lib, item_id: int, fields: dict, move: bool = True) -> bool:
+def set_item_fields(
+    lib,
+    item_id: int,
+    fields: dict,
+    move: bool = True,
+    conflict_resolution: str | None = None,
+) -> dict:
+    """Sets metadata fields on a single item.
+    Detects Placement Conflicts when move=True and proposed file path collides with an existing file.
+    conflict_resolution can be 'skip', 'overwrite', or 'keep_both'.
+    """
     item = lib.get_item(item_id)
     if item is None:
-        return False
+        return {"ok": False, "error": "Item not found"}
+
+    old_fields = {k: item.get(k) for k in fields}
     for k, v in fields.items():
         item[k] = v
-    item.store()
 
     if move and _paths_would_change(item):
+        try:
+            new_dest = item.destination()
+        except Exception:
+            new_dest = item.path
+
+        dest_str = syspath(new_dest)
+        if bytes(new_dest) != bytes(item.path) and os.path.exists(dest_str):
+            if conflict_resolution is None:
+                # Revert in-memory before returning conflict
+                for k, v in old_fields.items():
+                    if v is None:
+                        del item[k]
+                    else:
+                        item[k] = v
+                return {
+                    "ok": False,
+                    "conflict": True,
+                    "kind": "item",
+                    "id": item_id,
+                    "destination": dest_str,
+                    "message": f"Destination path '{dest_str}' is already occupied.",
+                }
+            elif conflict_resolution == "skip":
+                for k, v in old_fields.items():
+                    if v is None:
+                        del item[k]
+                    else:
+                        item[k] = v
+                item.store()
+                return {"ok": True, "action": "skip", "reverted": True}
+            elif conflict_resolution == "overwrite":
+                if os.path.exists(dest_str):
+                    try:
+                        os.remove(dest_str)
+                    except OSError:
+                        pass
+                item.store()
+                item.move()
+                return {"ok": True, "action": "overwrite"}
+            elif conflict_resolution == "keep_both":
+                item.store()
+                item.move()
+                return {"ok": True, "action": "keep_both"}
+
+    item.store()
+    if move and _paths_would_change(item):
         item.move()
+    return {"ok": True}
 
-    return True
 
+def bulk_set_field(
+    lib,
+    album_ids: list[int],
+    field: str,
+    value: str,
+    move: bool = True,
+    conflict_resolution: str | None = None,
+) -> dict:
+    if move and conflict_resolution is None:
+        for album_id in album_ids:
+            res = set_album_fields(
+                lib,
+                album_id,
+                {field: value},
+                move=True,
+                conflict_resolution=None,
+            )
+            if res.get("conflict"):
+                return res
 
-def bulk_set_field(lib, album_ids: list[int], field: str, value: str, move: bool = True) -> int:
     updated = 0
     for album_id in album_ids:
-        if set_album_fields(lib, album_id, {field: value}, move=move):
+        res = set_album_fields(
+            lib,
+            album_id,
+            {field: value},
+            move=move,
+            conflict_resolution=conflict_resolution,
+        )
+        if res.get("ok"):
             updated += 1
-    return updated
+    return {"ok": True, "updated": updated}

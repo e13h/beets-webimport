@@ -89,17 +89,24 @@ async function api(path, opts) {
     headers: { "Content-Type": "application/json" },
     ...opts,
   });
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {
+    // not JSON
+  }
   if (!res.ok) {
-    let errDetail = `${path}: ${res.status}`;
-    try {
-      const errJson = await res.json();
-      if (errJson.error) errDetail = errJson.error;
-    } catch {
-      // ignore JSON parse failure
+    if (res.status === 409 && data && data.conflict) {
+      const err = new Error(data.message || "Placement conflict");
+      err.conflictData = data;
+      err.status = 409;
+      throw err;
     }
+    let errDetail = `${path}: ${res.status}`;
+    if (data && data.error) errDetail = data.error;
     throw new Error(errDetail);
   }
-  return res.json();
+  return data;
 }
 
 // -- tabs --------------------------------------------------------------
@@ -116,7 +123,10 @@ $$("#tabs button").forEach((btn) => {
 function refreshTab(tab) {
   if (tab === "inbox") loadInbox();
   if (tab === "undo") loadUndo();
-  if (tab === "library") loadLibrary();
+  if (tab === "library") {
+    loadListeningGroups();
+    loadLibrary();
+  }
   if (tab === "tags") loadTags();
 }
 
@@ -571,6 +581,48 @@ async function loadUndo() {
   });
 }
 
+// ===================== LISTENING GROUPS & CONFLICTS =================
+async function loadListeningGroups() {
+  try {
+    const groups = await api("/api/library/listening_groups");
+    const datalist = $("#listening-groups-list");
+    if (datalist && Array.isArray(groups)) {
+      datalist.innerHTML = groups.map((g) => `<option value="${escapeHtml(g)}"></option>`).join("");
+    }
+  } catch {
+    // best-effort
+  }
+}
+
+function openPlacementConflictModal(conflictData, onResolve) {
+  const container = document.createElement("div");
+  container.innerHTML = `
+    <h3>Placement Conflict</h3>
+    <p>A file move conflict occurred at destination path:</p>
+    <pre class="path" style="white-space:pre-wrap; word-break:break-all;">${escapeHtml(conflictData.destination)}</pre>
+    <p style="font-size:13px; color:var(--muted);">Choose how to resolve this collision:</p>
+    <div class="row">
+      <button data-keep-both>Keep both</button>
+      <button class="secondary" data-overwrite>Overwrite existing</button>
+      <button class="danger" data-skip>Skip edit (revert)</button>
+    </div>`;
+
+  const backdrop = openModal(container);
+
+  container.querySelector("[data-keep-both]").addEventListener("click", () => {
+    backdrop.close();
+    onResolve("keep_both");
+  });
+  container.querySelector("[data-overwrite]").addEventListener("click", () => {
+    backdrop.close();
+    onResolve("overwrite");
+  });
+  container.querySelector("[data-skip]").addEventListener("click", () => {
+    backdrop.close();
+    onResolve("skip");
+  });
+}
+
 // ===================== LIBRARY =========================================
 let selectedAlbumIds = new Set();
 
@@ -604,7 +656,7 @@ async function loadLibrary(q = "") {
     tile.className = "album-tile grabbable";
     tile.innerHTML = `
       <div class="art-wrap">
-        <img src="/api/library/albums/${a.id}/art" onerror="this.parentElement.classList.add('no-art')" />
+        <img src="/api/library/albums/${a.id}/art?thumb=1" onerror="this.parentElement.classList.add('no-art')" />
         <div class="art-placeholder"><span>No Art</span></div>
       </div>
       <span class="lib-badge">${escapeHtml(a.navidrome_library || "unassigned")}</span>
@@ -640,20 +692,62 @@ function updateBulkBar() {
 $("#bulk-apply")?.addEventListener("click", () => promptSetLibrary([...selectedAlbumIds]));
 
 async function promptSetLibrary(albumIds) {
-  const value = prompt("navidrome_library value (e.g. kids, worship, holiday, talkradio):");
-  if (!value) return;
-  try {
-    await api("/api/library/albums/bulk_fields", {
-      method: "POST",
-      body: JSON.stringify({ album_ids: albumIds, field: "navidrome_library", value, move: true }),
-    });
-    showToast(`Updated navidrome_library on ${albumIds.length} album(s).`, "success");
-    selectedAlbumIds.clear();
-    updateBulkBar();
-    loadLibrary($("#lib-search").value);
-  } catch (err) {
-    showToast(`Failed to update field: ${err.message}`, "error");
-  }
+  const container = document.createElement("div");
+  container.innerHTML = `
+    <h3>Set Listening Group (navidrome_library)</h3>
+    <p style="font-size:13px; color:var(--muted);">Select an existing listening group or type a new one:</p>
+    <div class="row">
+      <input type="text" list="listening-groups-list" placeholder="e.g. kids, worship, holiday, talkradio" style="flex:1" data-val />
+      <button data-apply>Apply</button>
+      <button class="secondary" data-cancel>Cancel</button>
+    </div>`;
+
+  const input = container.querySelector("[data-val]");
+  const applyBtn = container.querySelector("[data-apply]");
+  const cancelBtn = container.querySelector("[data-cancel]");
+
+  const backdrop = openModal(container);
+  input.focus();
+
+  cancelBtn.addEventListener("click", () => backdrop.close());
+
+  const doApply = async (conflictResolution = null) => {
+    const value = input.value.trim();
+    if (!value) return;
+    try {
+      await api("/api/library/albums/bulk_fields", {
+        method: "POST",
+        body: JSON.stringify({
+          album_ids: albumIds,
+          field: "navidrome_library",
+          value,
+          move: true,
+          conflict_resolution: conflictResolution,
+        }),
+      });
+      backdrop.close();
+      if (conflictResolution === "skip") {
+        showToast("Skipped field update (reverted).", "info");
+      } else {
+        showToast(`Updated navidrome_library on ${albumIds.length} album(s).`, "success");
+      }
+      selectedAlbumIds.clear();
+      updateBulkBar();
+      loadListeningGroups();
+      loadLibrary($("#lib-search").value);
+    } catch (err) {
+      if (err.conflictData) {
+        openPlacementConflictModal(err.conflictData, (res) => doApply(res));
+      } else {
+        showToast(`Failed to update field: ${err.message}`, "error");
+      }
+    }
+  };
+
+  applyBtn.addEventListener("click", () => doApply());
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") doApply();
+  });
 }
 
 let searchDebounce;
@@ -676,7 +770,7 @@ async function openAlbumDetail(albumId) {
     <h3>${escapeHtml(detail.fields.albumartist)} – ${escapeHtml(detail.fields.album)}</h3>
     <div class="row">
       <label>navidrome_library
-        <input type="text" data-field="navidrome_library" value="${escapeHtml(detail.fields.navidrome_library || "")}" />
+        <input type="text" list="listening-groups-list" data-field="navidrome_library" value="${escapeHtml(detail.fields.navidrome_library || "")}" />
       </label>
       <button data-save-album>Save (auto-move if path changes)</button>
       <button class="secondary" data-reimport>Reimport…</button>
@@ -684,20 +778,35 @@ async function openAlbumDetail(albumId) {
     <h4>Tracks</h4>
     <div data-tracks></div>`;
 
-  container.querySelector("[data-save-album]").addEventListener("click", async () => {
+  const saveAlbumWithConflict = async (conflictResolution = null) => {
     const value = container.querySelector('[data-field="navidrome_library"]').value;
     try {
       await api(`/api/library/albums/${albumId}/fields`, {
         method: "POST",
-        body: JSON.stringify({ fields: { navidrome_library: value }, move: true }),
+        body: JSON.stringify({
+          fields: { navidrome_library: value },
+          move: true,
+          conflict_resolution: conflictResolution,
+        }),
       });
-      showToast("Album saved.", "success");
+      if (conflictResolution === "skip") {
+        showToast("Edit skipped (reverted).", "info");
+      } else {
+        showToast("Album saved.", "success");
+      }
       backdrop.close();
+      loadListeningGroups();
       loadLibrary($("#lib-search").value);
     } catch (err) {
-      showToast(`Save failed: ${err.message}`, "error");
+      if (err.conflictData) {
+        openPlacementConflictModal(err.conflictData, (res) => saveAlbumWithConflict(res));
+      } else {
+        showToast(`Save failed: ${err.message}`, "error");
+      }
     }
-  });
+  };
+
+  container.querySelector("[data-save-album]").addEventListener("click", () => saveAlbumWithConflict());
 
   container.querySelector("[data-reimport]").addEventListener("click", () => {
     backdrop.close();
@@ -729,7 +838,7 @@ async function openReimport(albumIds) {
       <label><input type="checkbox" data-fromscratch /> <b>--from-scratch</b> (erase existing metadata first)</label>
     </div>
     <div class="row">
-      <input type="text" placeholder="navidrome_library value to --set (optional)" data-setlib style="flex:1" />
+      <input type="text" placeholder="navidrome_library value to --set (optional)" data-setlib list="listening-groups-list" style="flex:1" />
     </div>
     <div class="row">
       <button data-go>Run reimport</button>

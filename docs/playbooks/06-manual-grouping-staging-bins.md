@@ -281,6 +281,28 @@ ls -la .inbox/_grouped/*/*
 
 ---
 
+### Step 8: Verify Staging Bins Cleaned Up on Grace Period Expiry
+After the Grace Period expires (or after expiry pruning is triggered), verify that the staging bins under `.inbox/_grouped/` are automatically removed from disk without leaving empty directories behind, while regular library albums remain intact.
+
+```json
+// Tool Call: browser_evaluate
+{
+  "function": "async () => {\n  // Fetch undo list to trigger pruning or wait for expiry\n  const undoList = await (await fetch('/api/undo')).json();\n  const inboxData = await (await fetch('/api/inbox')).json();\n  return { undoList, inboxData };\n}"
+}
+```
+
+Verify the filesystem via bash / python:
+```bash
+# Verify staging bins are gone once grace period has elapsed
+ls -la .inbox/_grouped 2>/dev/null || echo "Cleaned up"
+```
+
+**Expected Outcome:**
+- Staging bins under `.inbox/_grouped/<id>/` are deleted once the Grace Period elapses.
+- Library files and database entries for the imported albums remain in place.
+
+---
+
 ## Teardown
 
 Stop the `beet webimport` process:

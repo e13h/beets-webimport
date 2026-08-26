@@ -8,9 +8,9 @@ Browse & Metadata Editing user stories.
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Library grid thumbnails are served from a resized, cached representation rather than the full-size `artpath` file directly.
-- [ ] Cache is invalidated/regenerated when an album's art changes (e.g. after a reimport or a manual art replacement).
-- [ ] Albums with a null `artpath` still show art by falling back to extracting embedded art from the file, cached the same way.
-- [ ] Verified to keep the library grid responsive at the current ~800-album scale (informal timing check acceptable — no formal perf budget specified).
+- [x] Library grid thumbnails are served from a resized, cached representation rather than the full-size `artpath` file directly.
+- [x] Cache is invalidated/regenerated when an album's art changes (e.g. after a reimport or a manual art replacement).
+- [x] Albums with a null `artpath` still show art by falling back to extracting embedded art from the file, cached the same way.
+- [x] Verified to keep the library grid responsive at the current ~800-album scale (informal timing check acceptable — no formal perf budget specified).

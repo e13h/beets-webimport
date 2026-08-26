@@ -8,9 +8,9 @@ closest automatable proxy for a real-device pass.
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Playbook runs under Playwright's mobile/touch emulation (viewport + touch event support) against the real running server.
-- [ ] Exercises long-press-to-menu as the touch equivalent of at least one desktop drag-and-drop interaction named in the spec (e.g. manual grouping into a Staging Bin, or the "move to" menu).
-- [ ] Confirms the resulting action (e.g. a file moved into a bin) matches what the equivalent desktop drag-and-drop would produce.
-- [ ] Playbook explicitly notes it is a proxy for, not a replacement of, a real-device manual verification pass (per the spec's Further Notes).
+- [x] Playbook runs under Playwright's mobile/touch emulation (viewport + touch event support) against the real running server.
+- [x] Exercises long-press-to-menu as the touch equivalent of at least one desktop drag-and-drop interaction named in the spec (e.g. manual grouping into a Staging Bin, or the "move to" menu).
+- [x] Confirms the resulting action (e.g. a file moved into a bin) matches what the equivalent desktop drag-and-drop would produce.
+- [x] Playbook explicitly notes it is a proxy for, not a replacement of, a real-device manual verification pass (per the spec's Further Notes).

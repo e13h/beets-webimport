@@ -8,9 +8,11 @@ never touched by import in copy mode, so no restore step is needed.
 """
 from __future__ import annotations
 
+import shutil
 import threading
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 
@@ -22,6 +24,7 @@ class UndoRecord:
     label: str  # human-readable, for the UI list
     inbox_path: str | None = None
     imported_at: float = field(default_factory=time.time)
+    is_staging_bin: bool = False
 
 
 class GracePeriodManager:
@@ -31,13 +34,28 @@ class GracePeriodManager:
         self._records: dict[str, UndoRecord] = {}
         self._lock = threading.Lock()
 
-    def register(self, kind: str, db_id: int, label: str, inbox_path: str | None = None) -> str:
+    def register(
+        self,
+        kind: str,
+        db_id: int,
+        label: str,
+        inbox_path: str | None = None,
+        is_staging_bin: bool = False,
+    ) -> str:
         import uuid
+
+        if inbox_path and ("_grouped" in str(inbox_path)):
+            is_staging_bin = True
 
         record_id = uuid.uuid4().hex
         with self._lock:
             self._records[record_id] = UndoRecord(
-                record_id=record_id, kind=kind, db_id=db_id, label=label, inbox_path=inbox_path
+                record_id=record_id,
+                kind=kind,
+                db_id=db_id,
+                label=label,
+                inbox_path=inbox_path,
+                is_staging_bin=is_staging_bin,
             )
         return record_id
 
@@ -45,12 +63,38 @@ class GracePeriodManager:
         now = time.time()
         with self._lock:
             expired = [
-                rid
-                for rid, rec in self._records.items()
+                rec
+                for rec in self._records.values()
                 if now - rec.imported_at > self.grace_period_seconds
             ]
-            for rid in expired:
-                del self._records[rid]
+            for rec in expired:
+                del self._records[rec.record_id]
+
+        for rec in expired:
+            if rec.is_staging_bin and rec.inbox_path:
+                p = Path(rec.inbox_path)
+                if p.exists():
+                    try:
+                        if p.is_dir():
+                            shutil.rmtree(p)
+                        else:
+                            p.unlink()
+                        parent = p.parent
+                        if parent.exists() and parent.name != "_grouped":
+                            try:
+                                parent.rmdir()
+                                if parent.parent.exists() and parent.parent.name == "_grouped":
+                                    try:
+                                        parent.parent.rmdir()
+                                    except OSError:
+                                        pass
+                            except OSError:
+                                pass
+                    except OSError:
+                        pass
+
+    def prune_expired(self):
+        self._prune_expired()
 
     def list_undoable(self) -> list[dict[str, Any]]:
         self._prune_expired()
@@ -90,7 +134,6 @@ class GracePeriodManager:
         obj.remove(delete=True)  # == `beet remove -d`, scoped to this ID
 
         if rec.inbox_path:
-            from pathlib import Path
             marker = Path(rec.inbox_path) / ".webimport_imported"
             if marker.exists():
                 try:
