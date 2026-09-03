@@ -24,6 +24,19 @@ filterable state so nothing gets lost in it silently.
 _Avoid_: navidrome_library (when referring to the user-facing concept —
 reserve that name for the underlying field)
 
+**Direct ID Import**:
+Supplying a known release identifier (a bare MBID/UUID or any ID-bearing
+URL the matching backend can parse, e.g. MusicBrainz or Discogs release
+URLs) at the moment an import is started, so the initial broad candidate
+search is skipped entirely in favor of a single targeted lookup. Distinct
+from the search-by-ID override, which happens mid-review against an
+already-completed candidate search. The targeted result still passes
+through the normal review step before apply; a failed or empty lookup is
+surfaced for correction rather than silently falling back to a heuristic
+match. On a folder already imported, a Direct ID Import routes through
+the Reimport flow (query-driven against the library record), not a fresh
+path-driven session — avoiding the silent-duplicate trap.
+
 **Grace Period**:
 The configurable window (default ~10 minutes) after an import or reimport
 apply during which the resulting Album/Item can be undone. Tracked
