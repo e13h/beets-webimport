@@ -16,22 +16,22 @@ which remains unchanged on those cards.
 **Blocked by:** 38 (UI — Direct ID Import toggle on fresh inbox folders
 with retry on failed lookup — reuses the same card toggle pattern)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Already-imported inbox folder cards show the same inline
+- [x] Already-imported inbox folder cards show the same inline
       "Import with ID…" toggle as fresh cards; fresh-card behavior is
       unchanged.
-- [ ] Submitting on an imported card fires the reimport endpoint with
+- [x] Submitting on an imported card fires the reimport endpoint with
       the supplied ID only (from-scratch off, no set_fields) — the
       query-driven reimport path against the library record, not a
       fresh import of the inbox files.
-- [ ] The reimport's targeted candidate appears in the normal review
+- [x] The reimport's targeted candidate appears in the normal review
       modal for approval before apply; from-scratch is not offered
       there (it remains exclusive to the full Re-import modal).
-- [ ] If the library album ID is unavailable from the marker data, the
+- [x] If the library album ID is unavailable from the marker data, the
       submission fails with a clear toast rather than falling back to a
       fresh import.
-- [ ] Verification against the disposable test setup: import Mulan,
+- [x] Verification against the disposable test setup: import Mulan,
       then Direct-ID-import the same folder with the same MBID — no
       duplicate album is created (no duplicate-decision prompt needed),
       and the review step shows the expected release.

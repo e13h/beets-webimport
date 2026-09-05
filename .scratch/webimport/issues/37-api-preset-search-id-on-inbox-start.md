@@ -12,21 +12,21 @@ candidates so the UI can surface the failure for correction.
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] The inbox import-start endpoint accepts a form that pairs each
+- [x] The inbox import-start endpoint accepts a form that pairs each
       path with an optional raw search-ID string, alongside the existing
       paths-only form which continues to work unchanged.
-- [ ] The supplied ID is passed through to the import session so the
+- [x] The supplied ID is passed through to the import session so the
       first candidate lookup is targeted at that ID (reusing the
       session's existing preset-ID machinery, not a new session type).
-- [ ] The ID is accepted as a raw string pass-through — bare UUID,
+- [x] The ID is accepted as a raw string pass-through — bare UUID,
       MusicBrainz release URL, Discogs release URL — anything the
       matching backend can parse; no client-side URL parsing.
-- [ ] A targeted lookup yielding zero candidates registers a review task
+- [x] A targeted lookup yielding zero candidates registers a review task
       with an empty candidate list (with the attempted ID visible in the
       payload) rather than aborting the session or falling back to
       normal search.
-- [ ] Verifiable without the UI: driving the endpoint directly with a
+- [x] Verifiable without the UI: driving the endpoint directly with a
       known-good test MBID produces a single-candidate review task, and
       a bogus ID produces an empty-candidate review task.

@@ -95,7 +95,7 @@ def create_app(lib, wi_config, plugin):
     loghandler = None  # let beets use its default logging
 
     # -- inbox scanning / import kickoff -----------------------------------
-    def _run_album_import(path: str):
+    def _run_album_import(path: str, search_id: str | None = None):
         _import_ctx.path = path
         _import_ctx.imported_album_id = None
         session = WebImportSession(
@@ -107,6 +107,8 @@ def create_app(lib, wi_config, plugin):
             config=wi_config,
             apply_lock=apply_lock,
         )
+        if search_id:
+            session.preset_search_id = search_id
         try:
             session.run()
             if getattr(_import_ctx, "imported_album_id", None) is not None:
@@ -217,11 +219,16 @@ def create_app(lib, wi_config, plugin):
     @app.post("/api/inbox/start")
     def api_inbox_start():
         """Body: {"paths": ["/inbox/preview/Some Album", ...]}
-        Kicks off one WebImportSession per path in the worker pool
-        (parallel candidate search/review)."""
+        Optional "search_ids": {"<path>": "<raw ID>"} pairs each path
+        with a pre-specified backend search ID (Direct ID Import) -- a
+        bare MBID/UUID or any ID-bearing URL the matching backend can
+        parse, passed through verbatim (no client- or server-side URL
+        parsing). Kicks off one WebImportSession per path in the worker
+        pool (parallel candidate search/review)."""
         body = request.get_json(force=True)
+        search_ids = body.get("search_ids") or {}
         for path in body.get("paths", []):
-            pool.submit(path, _run_album_import)
+            pool.submit(path, lambda p, sid=search_ids.get(path): _run_album_import(p, sid))
         return jsonify({"submitted": len(body.get("paths", []))})
 
     @app.post("/api/inbox/group")

@@ -125,6 +125,15 @@ button:disabled { opacity: .5; cursor: default; }
 .candidate.focused { border-color: var(--accent); background: #202535; }
 .candidate .dist { color: var(--muted); font-size: 12px; }
 
+.id-error-banner {
+  border: 1px solid var(--danger);
+  background: #2b1e1e;
+  border-radius: 8px;
+  padding: 10px;
+  margin: 10px 0;
+  font-size: 14px;
+}
+
 .art-compare { display: flex; gap: 10px; margin-top: 8px; align-items: center; }
 .art-compare img {
   width: 90px; height: 90px; object-fit: cover; border-radius: 6px; background: #000;

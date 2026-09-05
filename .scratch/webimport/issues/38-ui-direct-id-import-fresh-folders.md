@@ -15,21 +15,21 @@ the Direct ID Import workflow (see CONTEXT.md) user-visible end to end.
 **Blocked by:** 37 (API — accept a pre-specified search ID on inbox
 import start)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Each fresh inbox folder card has an inline toggle ("Import with
+- [x] Each fresh inbox folder card has an inline toggle ("Import with
       ID…") that expands a free-text input; the default "Start import"
       flow is unchanged when the toggle is unused.
-- [ ] The input is sent as a raw string (no client-side parsing or URL
+- [x] The input is sent as a raw string (no client-side parsing or URL
       extraction) and starting an import with an ID skips the visible
       multi-second candidate-search wait.
-- [ ] Submitting with a valid ID opens the normal review modal showing
+- [x] Submitting with a valid ID opens the normal review modal showing
       the single targeted candidate; approval still goes through the
       standard apply path (no auto-apply).
-- [ ] Submitting with an invalid/unresolvable ID opens the review modal
+- [x] Submitting with an invalid/unresolvable ID opens the review modal
       in an error state: banner naming the failed ID, an input to supply
       a replacement ID, and a way to trigger a normal auto-search.
-- [ ] Playbook or manual verification against the disposable test setup:
+- [x] Playbook or manual verification against the disposable test setup:
       fresh Mulan inbox folder imported via a known-good MBID resolves
       to the expected release and applies correctly after approval; a
       bogus ID shows the retry error state.

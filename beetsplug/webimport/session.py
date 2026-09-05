@@ -81,15 +81,15 @@ class WebImportSession(importer.ImportSession):
 
     # -- album matching -----------------------------------------------
     def choose_match(self, task: importer.ImportTask):
-        if self.preset_search_id:
-            search_id, self.preset_search_id = self.preset_search_id, None
-            try:
-                task.lookup_candidates(search_ids=[search_id])
-            except AttributeError:
-                items = task.items
-                _, _, prop = autotag.tag_album(items, search_ids=[search_id])
-                task.candidates = prop.candidates
-                task.rec = prop.recommendation
+        attempted_search_id = None
+        # Consumed once per pass. Set either at session start (Direct ID
+        # Import via the inbox-start endpoint / reimport) or by a
+        # mid-review "search_id" decision -- including the UI's
+        # "Auto-search instead" fallback, which sends a blank ID that
+        # runs the normal broad search.
+        if self.preset_search_id is not None:
+            attempted_search_id, self.preset_search_id = self.preset_search_id, None
+            self._lookup_candidates(task, attempted_search_id)
 
         candidates_payload = [
             _serialize_album_match(i, m) for i, m in enumerate(task.candidates)
@@ -100,10 +100,33 @@ class WebImportSession(importer.ImportSession):
             "candidates": candidates_payload,
             "rec": str(task.rec) if task.rec is not None else None,
         }
+        if attempted_search_id:
+            # Direct ID Import: make the attempted ID visible so the UI
+            # can surface a failed/empty lookup for correction instead of
+            # it looking like an ordinary zero-result search.
+            payload["attempted_search_id"] = attempted_search_id
         pr = self.review_manager.register("match", payload["path"], payload)
         decision = self.review_manager.wait_for_decision(pr.task_id)
 
         return self._apply_decision_album(task, decision)
+
+    def _lookup_candidates(self, task, search_id: str):
+        """Runs the candidate search restricted to a specific backend ID
+        (equivalent of `-S <id>`). An empty/blank search_id clears the
+        restriction and runs the normal broad tag/acoustic search -- the
+        UI's "Auto-search instead" fallback after a failed Direct ID
+        lookup. Raw strings pass through verbatim: bare UUID, MusicBrainz
+        release URL, Discogs release URL, anything the backend parses."""
+        if not search_id or not search_id.strip():
+            task.lookup_candidates()
+            return
+        try:
+            task.lookup_candidates(search_ids=[search_id])
+        except AttributeError:
+            items = task.items
+            _, _, prop = autotag.tag_album(items, search_ids=[search_id])
+            task.candidates = prop.candidates
+            task.rec = prop.recommendation
 
     def _acquire_apply_lock(self):
         if self.apply_lock is not None and not self._lock_acquired:
@@ -126,19 +149,12 @@ class WebImportSession(importer.ImportSession):
             return Action.ALBUMS
 
         if kind == "search_id":
-            search_id = decision["search_id"]
-            # Re-run candidate search restricted to this specific
-            # backend ID (equivalent of `-S <id>`).
-            try:
-                task.lookup_candidates(search_ids=[search_id])
-            except AttributeError:
-                # Fallback for beets versions without lookup_candidates:
-                # rebuild candidates via autotag directly.
-                items = task.items
-                _, _, prop = autotag.tag_album(items, search_ids=[search_id])
-                task.candidates = prop.candidates
-                task.rec = prop.recommendation
-            # Re-register so the UI reviews the (now single) candidate.
+            # Re-run the candidate lookup restricted to this backend ID
+            # (equivalent of `-S <id>`); a blank ID runs the normal
+            # broad search. Routed through the same preset machinery as
+            # the initial Direct ID Import so a failed retry also
+            # surfaces attempted_search_id to the UI.
+            self.preset_search_id = decision["search_id"]
             return self.choose_match(task)
 
         if kind == "select":

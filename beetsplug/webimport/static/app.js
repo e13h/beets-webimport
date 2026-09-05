@@ -209,6 +209,32 @@ function showLongPressMenu(x, y, items) {
 }
 
 // ===================== INBOX / REVIEW ===================================
+// After starting a Direct ID import, the targeted lookup is fast and
+// usually yields exactly one candidate (or an empty-candidate error
+// state) -- open the review modal as soon as it registers instead of
+// making the user hunt for the card.
+async function openReviewWhenReady(path, maxWaitMs = 30000) {
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    await new Promise((r) => setTimeout(r, 500));
+    let data;
+    try {
+      data = await api("/api/inbox");
+    } catch {
+      continue; // transient poll failure -- keep waiting
+    }
+    const pr = data.pending_review.find((p) => p.path === path);
+    if (pr) {
+      openReview(pr);
+      return;
+    }
+    // Task finished without registering a review (e.g. skip/abort):
+    // stop polling once the folder is no longer in progress.
+    const dir = (data.inbox_dirs || []).find((d) => d.path === path);
+    if (dir && !dir.in_progress) return;
+  }
+}
+
 async function loadInbox() {
   let data;
   try {
@@ -248,19 +274,89 @@ async function loadInbox() {
     if (imported) {
       actionsHtml = `
         <button class="secondary" data-reimport>Re-import</button>
+        <button class="secondary" data-id-toggle>Import with ID…</button>
         <button class="danger" data-delete>Delete from inbox</button>`;
     } else if (inProgress || pendingReview) {
       actionsHtml = `
         <button disabled class="secondary">${inProgress ? "Searching Candidates…" : "Awaiting Review"}</button>`;
     } else {
-      actionsHtml = `<button data-start>Start import</button>`;
+      actionsHtml = `
+        <button data-start>Start import</button>
+        <button class="secondary" data-id-toggle>Import with ID…</button>`;
     }
+
+    const idFormHtml = `
+      <div class="row" data-id-form style="display:none">
+        <input type="text" placeholder="Paste MusicBrainz ID or URL" style="flex:1" data-id-input />
+        <button data-id-go>Start import with ID</button>
+      </div>`;
 
     card.innerHTML = `
       <div class="path">${badgeHtml}${escapeHtml(path)}</div>
       <div class="row">
         ${actionsHtml}
-      </div>`;
+      </div>
+      ${idFormHtml}`;
+
+    const idToggle = card.querySelector("[data-id-toggle]");
+    if (idToggle) {
+      idToggle.addEventListener("click", () => {
+        const form = card.querySelector("[data-id-form]");
+        const visible = form.style.display !== "none";
+        form.style.display = visible ? "none" : "flex";
+        if (!visible) form.querySelector("[data-id-input]").focus();
+      });
+    }
+
+    const idGo = card.querySelector("[data-id-go]");
+    if (idGo) {
+      const resetIdGo = () => {
+        idGo.disabled = false;
+        idGo.textContent = "Start import with ID";
+      };
+      idGo.addEventListener("click", async () => {
+        // Raw pass-through: no client-side URL parsing or extraction.
+        const raw = card.querySelector("[data-id-input]").value.trim();
+        if (!raw) return;
+        idGo.disabled = true;
+        idGo.textContent = "Starting…";
+        try {
+          if (imported) {
+            if (!albumId) {
+              showToast(
+                "Cannot Direct-ID-import: library album ID unavailable from marker data. Use Re-import instead.",
+                "error"
+              );
+              resetIdGo();
+              return;
+            }
+            await api("/api/reimport", {
+              method: "POST",
+              body: JSON.stringify({
+                album_ids: [albumId],
+                search_id: raw,
+                from_scratch: false,
+                set_fields: {},
+              }),
+            });
+          } else {
+            await api("/api/inbox/start", {
+              method: "POST",
+              body: JSON.stringify({
+                paths: [path],
+                search_ids: { [path]: raw },
+              }),
+            });
+          }
+          showToast(`Started Direct ID import for ${path}`, "info", 3000);
+          loadInbox();
+          if (!imported) openReviewWhenReady(path);
+        } catch (err) {
+          showToast(`Failed to start import: ${err.message}`, "error");
+          resetIdGo();
+        }
+      });
+    }
 
     if (imported) {
       card.querySelector("[data-reimport]").addEventListener("click", () => {
@@ -373,6 +469,48 @@ async function openReview(pr) {
     focusedIndex = 0;
     renderCandidates();
     loadArtCompare($(".candidate", list), pr, pr.payload.candidates[0]);
+  }
+
+  // Direct ID Import failure state: a pre-specified ID yielded zero
+  // candidates (bad ID, 404, network failure). Surface it for
+  // correction instead of showing an empty candidate list.
+  if (!pr.payload.candidates.length && pr.payload.attempted_search_id) {
+    const errBanner = document.createElement("div");
+    errBanner.className = "id-error-banner";
+    errBanner.innerHTML = `
+      <div>⚠ No candidate found for ID <b>${escapeHtml(pr.payload.attempted_search_id)}</b>.</div>
+      <div class="row">
+        <input type="text" placeholder="Paste a different MusicBrainz ID or URL" style="flex:1" data-retry-id />
+        <button data-retry-go>Try ID</button>
+        <button class="secondary" data-auto-search>Auto-search instead</button>
+      </div>`;
+    container.appendChild(errBanner);
+
+    errBanner.querySelector("[data-retry-go]").addEventListener("click", async () => {
+      const raw = errBanner.querySelector("[data-retry-id]").value.trim();
+      if (!raw) return;
+      const toast = createProgressToast(`Searching candidate with ID ${raw}…`);
+      try {
+        await decide(pr.task_id, { action: "search_id", search_id: raw });
+        backdrop.close();
+        loadInbox();
+        toast.done("Candidate lookup updated.");
+      } catch (err) {
+        toast.error(`Search failed: ${err.message}`);
+      }
+    });
+
+    errBanner.querySelector("[data-auto-search]").addEventListener("click", async () => {
+      const toast = createProgressToast("Running normal candidate search…");
+      try {
+        await decide(pr.task_id, { action: "search_id", search_id: "" });
+        backdrop.close();
+        loadInbox();
+        toast.done("Candidate search started.");
+      } catch (err) {
+        toast.error(`Search failed: ${err.message}`);
+      }
+    });
   }
 
   const idRow = document.createElement("div");
