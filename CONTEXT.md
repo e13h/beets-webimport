@@ -34,18 +34,51 @@ already-completed candidate search. The targeted result still passes
 through the normal review step before apply; a failed or empty lookup is
 surfaced for correction rather than silently falling back to a heuristic
 match. On a folder already imported, a Direct ID Import routes through
-the Reimport flow (query-driven against the library record), not a fresh
-path-driven session — avoiding the silent-duplicate trap.
+the Reimport flow in the Library tab (query-driven against the library
+record, per ADR-0005), not a fresh path-driven session — avoiding the
+silent-duplicate trap. Two-Phase Edit applies to the Library-tab Reimport
+apply, since those files already exist in Navidrome.
 
 **Grace Period**:
-The configurable window (default ~10 minutes) after an import or reimport
-apply during which the resulting Album/Item can be undone. Tracked
-server-side as wall-clock time from the real `album_imported`/`item_imported`
-event, independent of whether a browser client is currently connected. Lost
-(not restored) if the plugin process restarts before it elapses — an
-accepted, low-priority gap (see ADR-0004). Expiry has two effects: the
-import becomes permanent (undo no longer available), and the originating
-Staging Bin (if any) becomes eligible for inbox cleanup.
+The configurable, **destructive** auto-delete of inbox originals after an
+import apply. On expiry the plugin performs the same action as Confirm
+Import: inbox files and the marker are removed, making the import
+permanent. Default **30 days**, configurable, and disable-able (then only
+manual confirm removes originals). It does *not* bound undo of the library
+record — undoability is scoped purely by the marker file (see Approve
+Tab). Tracked server-side as wall-clock time from the real
+`album_imported`/`item_imported` event; lost (not enforced) if the plugin
+process restarts before expiry — an accepted, low-priority gap (see
+ADR-0004). Staging Bins share this lifecycle.
+_Avoid_: undo window (the grace period deletes originals; it no longer
+bounds undo)
+
+**Approve Tab**:
+The inbox view (renamed from Undo) listing every folder bearing a
+`.webimport_imported` marker — i.e. originals whose import is live in the
+library. Shown as "imported N days ago" from the marker. Folders here
+never appear in the Import tab. Two actions: **Undo import** (delete the
+marked album from the library, remove the marker → folder returns to the
+Import tab as unimported) and **Confirm Import**. No reimport here; redo
+is undo-then-reimport.
+_Avoid_: Undo tab (old name), Imported list
+
+**Confirm Import**:
+The Approve Tab action that permanently accepts an import: deletes the
+inbox originals and the marker, leaving the library album untouched.
+Equivalent to Grace Period expiry.
+_Avoid_: delete from inbox (that described the old explicit folder
+deletion, not the accept semantics)
+
+**Pending Move**:
+The advisory state of a library item whose metadata was written (phase 1
+of ADR-0011) but whose file still sits at its old path, awaiting the
+user's confirmation that Navidrome has picked up the change before the
+move (phase 2) runs. Detected, never persisted: an actual-path vs.
+computed-path mismatch means a move is owed (holds across restarts,
+per ADR-0004). Superseded by any later move-producing operation; undone
+away with the item.
+_Avoid_: move queue, deferred move
 
 **Source Art**:
 The cover image associated with the currently-selected import candidate
@@ -81,15 +114,20 @@ One instance per inbox submission, occupying one slot in the
 review happens *across* sessions; the Import Task(s) within a single
 session are still visited one at a time by the beets pipeline.
 
-**Move-on-Field-Change**:
-The general rule that any metadata edit — single field, single track/album,
-or bulk — which changes an item's computed path (per `paths:` templates)
-triggers an automatic move of the underlying file(s), since the config runs
-`copy: yes`/`move: no` by default. Applies uniformly to every field; not a
-special case limited to `navidrome_library`. Relies on beets'
-`%aunique{}` template disambiguation for the common case; a genuine
-destination collision beyond that is a Placement Conflict (below), deferred
-past MVP.
+**Two-Phase Edit**:
+The rule (ADR-0011) that any library operation changing a file's computed
+path — field edit, bulk edit, or Library-tab reimport apply — writes
+metadata first and defers the move behind Pending Move confirmation, so
+Navidrome can remap PIDs while paths stay stable. Skipped entirely when
+the computed path doesn't change, and for Import-tab applies (those files
+never existed in Navidrome). Supersedes Move-on-Field-Change.
+_Avoid_: modify-then-move (loose description, not the term)
+
+**Move-on-Field-Change** *(superseded)*:
+The former rule that any metadata edit changing the computed path
+immediately moved the file(s) in the same operation. Replaced by
+Two-Phase Edit (ADR-0011) because the atomic modify+move breaks
+Navidrome PID remapping. Retained here so old references resolve.
 
 **Placement Conflict**:
 The umbrella concept for "two things want the same library slot," resolved
@@ -118,8 +156,7 @@ into, so the resulting directory matches one intended real album/single
 before beets' own directory-based grouping runs a canonical import on it.
 Chosen over constructing `ImportTask`/`SingletonImportTask` objects
 directly from an arbitrary in-memory file list, so every import — split or
-not — is an ordinary beets import (see ADR-0003). Survives past that
-import, through the Grace Period, since splitting a ripped playlist into
-bins is tedious and shouldn't have to be redone if the import is undone;
-only cleared from the inbox once its Grace Period expires.
+not — is an ordinary beets import (see ADR-0003). Survives the import and
+shares the Approve Tab lifecycle: a Staging Bin's originals are removed
+only by Confirm Import or Grace Period expiry, same as any album.
 _Avoid_: bin (alone), in-memory grouping

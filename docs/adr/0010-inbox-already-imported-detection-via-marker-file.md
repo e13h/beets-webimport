@@ -1,5 +1,11 @@
 # 0010: Inbox Already-Imported Detection via Directory Marker File
 
+> **Superseded by ADR-0012** for the UI behavior: imported folders now
+> live in the Approve tab (renamed from Undo), with "Undo import" /
+> "Confirm import and delete inbox files" actions, a 30-day destructive
+> Grace Period, and no in-tab reimport button. The marker file mechanism
+> defined below carries over unchanged.
+
 ## Context
 
 Because beets is configured in `copy: yes` mode (`move: no`), source audio
@@ -31,9 +37,10 @@ The marker file contains:
    the marker marks that bin as imported. When the bin's Grace Period
    expires, the Staging Bin directory (and its marker) is pruned per ADR-0003
    and ticket #13.
-4. **UI Behavior:** Already-imported folders display an `[Imported]` badge
-   with "Start import" replaced by a "Re-import" button and a "Delete from
-   inbox" action.
+4. **UI Behavior (superseded by ADR-0012):** ~~Already-imported folders
+   display an `[Imported]` badge with "Start import" replaced by a
+   "Re-import" button and a "Delete from inbox" action.~~ Imported folders
+   now appear in the Approve tab instead.
 
 ## Consequences
 
