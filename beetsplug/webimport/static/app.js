@@ -237,8 +237,19 @@ async function openReviewWhenReady(path, maxWaitMs = 30000) {
 
 // Open Direct-ID forms and their in-progress text, keyed by folder
 // path -- preserved across the 5s loadInbox() re-render so a mid-typing
-// form isn't wiped by the polling refresh.
+// form isn't wiped by the polling refresh. focusedIdInputPath tracks
+// which form's input has focus so it can be restored after re-render.
 const openIdForms = new Map();
+let focusedIdInputPath = null;
+// A real click/tap outside the Direct-ID form clears the focus tracker
+// (blur is unusable for this: it also fires during the poll re-render's
+// DOM teardown). Keyboard Tab-away is not covered — acceptable, since
+// re-focusing then is harmless.
+document.addEventListener("pointerdown", (e) => {
+  if (!focusedIdInputPath) return;
+  if (e.target.closest?.("[data-id-form]")) return;
+  focusedIdInputPath = null;
+}, true);
 
 async function loadInbox() {
   let data;
@@ -308,24 +319,35 @@ async function loadInbox() {
     const idToggle = card.querySelector("[data-id-toggle]");
     const idForm = card.querySelector("[data-id-form]");
     const idInput = card.querySelector("[data-id-input]");
-    // Restore open-state and typed text across the 5s polling re-render.
-    const saved = openIdForms.get(path);
-    if (saved) {
+    // Restore open-state and typed text across the 5s polling re-render
+    // (focus is restored after appendChild -- focus() is a silent no-op
+    // on elements not yet in the document). openIdForms.has(), not
+    // truthiness -- an open-but-empty form stores "".
+    const isOpen = openIdForms.has(path);
+    if (isOpen) {
       idForm.style.display = "flex";
-      idInput.value = saved;
+      idInput.value = openIdForms.get(path) || "";
     }
     if (idToggle) {
       idToggle.addEventListener("click", () => {
         const visible = idForm.style.display !== "none";
         idForm.style.display = visible ? "none" : "flex";
-        if (visible) openIdForms.delete(path);
-        else {
+        if (visible) {
+          openIdForms.delete(path);
+          if (focusedIdInputPath === path) focusedIdInputPath = null;
+        } else {
           openIdForms.set(path, idInput.value);
           idInput.focus();
         }
       });
     }
     idInput.addEventListener("input", () => openIdForms.set(path, idInput.value));
+    // Track focus for restore after the poll re-render. Do NOT clear on
+    // blur: Chrome fires blur with isConnected===true while tearing down
+    // the old DOM, so blur can't distinguish teardown from a real
+    // click-away. Instead, a document-level pointerdown outside the form
+    // (below) clears the tracker.
+    idInput.addEventListener("focus", () => (focusedIdInputPath = path));
 
     const idGo = card.querySelector("[data-id-go]");
     if (idGo) {
@@ -416,10 +438,19 @@ async function loadInbox() {
     }
 
     dirsEl.appendChild(card);
+
+    // Focus restore must happen after appendChild: element.focus() does
+    // nothing while the element is detached (card is appended here).
+    if (isOpen && focusedIdInputPath === path) {
+      idInput.focus();
+    }
   });
 
   for (const p of [...openIdForms.keys()]) {
-    if (!livePaths.has(p)) openIdForms.delete(p);
+    if (!livePaths.has(p)) {
+      openIdForms.delete(p);
+      if (focusedIdInputPath === p) focusedIdInputPath = null;
+    }
   }
 
   const pendingEl = $("#pending-reviews");
