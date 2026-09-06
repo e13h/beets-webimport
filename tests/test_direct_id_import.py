@@ -103,7 +103,7 @@ def test_choose_match_blank_search_id_runs_broad_search(lib, tmp_path, monkeypat
         review_manager=rm, config=None,
     )
 
-    calls = {}
+    calls = []
 
     class FakeTask:
         items = []
@@ -111,28 +111,21 @@ def test_choose_match_blank_search_id_runs_broad_search(lib, tmp_path, monkeypat
         candidates = []
         rec = None
 
-        def lookup_candidates(self, search_ids=None):
-            calls["search_ids"] = search_ids
+        # Mirrors real beets 2.x ImportTask.lookup_candidates:
+        # the argument is required, not optional.
+        def lookup_candidates(self, search_ids):
+            calls.append(search_ids)
             self.candidates = []
 
-    real_register = rm.register
-
-    def spy_register(kind, path, payload):
-        pr = real_register(kind, path, payload)
-        rm.submit_decision(pr.task_id, {"action": "skip"})
-        return pr
-
-    monkeypatch.setattr(rm, "register", spy_register)
     task = FakeTask()
     session._lookup_candidates(task, "")
-    assert calls["search_ids"] is None  # unrestricted search
+    assert calls[0] == []  # unrestricted search, no TypeError
 
-    calls.clear()
     session._lookup_candidates(task, "   ")
-    assert calls["search_ids"] is None
+    assert calls[1] == []
 
     session._lookup_candidates(task, "real-id")
-    assert calls["search_ids"] == ["real-id"]
+    assert calls[2] == ["real-id"]
 
 
 def test_choose_match_preset_good_id_single_candidate_review(lib, tmp_path, monkeypatch):

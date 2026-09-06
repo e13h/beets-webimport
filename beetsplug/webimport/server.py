@@ -64,13 +64,21 @@ def create_app(lib, wi_config, plugin):
         tag_store.add_field(field)
 
     inbox_dir = wi_config["inbox_dir"].get(str) or ""
-    _import_ctx = threading.local()
+    # Shared (not thread-local) import context: beets' importer pipeline
+    # is threaded by default, so the album_imported/item_imported events
+    # fire on a pipeline stage thread -- not on the worker thread running
+    # session.run(). A threading.local would make the listener observe
+    # path=None and the marker/album-id capture below would never fire.
+    # Only one import apply can be in flight at a time (Apply Lock).
+    _import_ctx = {"path": None, "imported_album_id": None}
+    _import_ctx_lock = threading.Lock()
 
     # -- capture successful imports for grace-period undo -----------------
     def _on_album_imported(lib, album):
-        inbox_path = getattr(_import_ctx, "path", None)
-        if inbox_path:
-            _import_ctx.imported_album_id = album.id
+        with _import_ctx_lock:
+            inbox_path = _import_ctx["path"]
+            if inbox_path:
+                _import_ctx["imported_album_id"] = album.id
         grace.register(
             "album",
             album.id,
@@ -80,7 +88,8 @@ def create_app(lib, wi_config, plugin):
         )
 
     def _on_item_imported(lib, item):
-        inbox_path = getattr(_import_ctx, "path", None)
+        with _import_ctx_lock:
+            inbox_path = _import_ctx["path"]
         grace.register(
             "item",
             item.id,
@@ -96,8 +105,9 @@ def create_app(lib, wi_config, plugin):
 
     # -- inbox scanning / import kickoff -----------------------------------
     def _run_album_import(path: str, search_id: str | None = None):
-        _import_ctx.path = path
-        _import_ctx.imported_album_id = None
+        with _import_ctx_lock:
+            _import_ctx["path"] = path
+            _import_ctx["imported_album_id"] = None
         session = WebImportSession(
             lib,
             loghandler,
@@ -111,14 +121,16 @@ def create_app(lib, wi_config, plugin):
             session.preset_search_id = search_id
         try:
             session.run()
-            if getattr(_import_ctx, "imported_album_id", None) is not None:
+            with _import_ctx_lock:
+                imported_album_id = _import_ctx["imported_album_id"]
+            if imported_album_id is not None:
                 marker_path = Path(path) / ".webimport_imported"
                 try:
                     import json
                     from datetime import datetime, timezone
 
                     marker_data = {
-                        "album_id": _import_ctx.imported_album_id,
+                        "album_id": imported_album_id,
                         "imported_at": datetime.now(timezone.utc).isoformat(),
                         "staging_bin": "_grouped" in str(path),
                     }
@@ -128,8 +140,9 @@ def create_app(lib, wi_config, plugin):
         finally:
             if session._lock_acquired:
                 apply_lock.release()
-            _import_ctx.path = None
-            _import_ctx.imported_album_id = None
+            with _import_ctx_lock:
+                _import_ctx["path"] = None
+                _import_ctx["imported_album_id"] = None
 
     @app.get("/api/inbox")
     def api_inbox_list():

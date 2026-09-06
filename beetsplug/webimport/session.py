@@ -118,7 +118,10 @@ class WebImportSession(importer.ImportSession):
         lookup. Raw strings pass through verbatim: bare UUID, MusicBrainz
         release URL, Discogs release URL, anything the backend parses."""
         if not search_id or not search_id.strip():
-            task.lookup_candidates()
+            # Empty list = unrestricted search. lookup_candidates requires
+            # the argument in beets 2.x (calling it bare raises TypeError
+            # and kills the pipeline thread).
+            task.lookup_candidates(search_ids=[])
             return
         try:
             task.lookup_candidates(search_ids=[search_id])

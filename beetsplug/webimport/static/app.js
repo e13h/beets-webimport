@@ -235,6 +235,11 @@ async function openReviewWhenReady(path, maxWaitMs = 30000) {
   }
 }
 
+// Open Direct-ID forms and their in-progress text, keyed by folder
+// path -- preserved across the 5s loadInbox() re-render so a mid-typing
+// form isn't wiped by the polling refresh.
+const openIdForms = new Map();
+
 async function loadInbox() {
   let data;
   try {
@@ -245,6 +250,7 @@ async function loadInbox() {
   }
 
   const dirsEl = $("#inbox-dirs");
+  const livePaths = new Set();
   dirsEl.innerHTML = "";
   if (data.inbox_dirs.length === 0) {
     dirsEl.innerHTML = '<p class="timer">Inbox is empty.</p>';
@@ -253,6 +259,7 @@ async function loadInbox() {
   data.inbox_dirs.forEach((dirInfo) => {
     const isObj = typeof dirInfo === "object" && dirInfo !== null;
     const path = isObj ? dirInfo.path : dirInfo;
+    livePaths.add(path);
     const imported = isObj ? !!dirInfo.imported : false;
     const albumId = isObj ? dirInfo.album_id : null;
     const inProgress = isObj ? !!dirInfo.in_progress : false;
@@ -299,14 +306,26 @@ async function loadInbox() {
       ${idFormHtml}`;
 
     const idToggle = card.querySelector("[data-id-toggle]");
+    const idForm = card.querySelector("[data-id-form]");
+    const idInput = card.querySelector("[data-id-input]");
+    // Restore open-state and typed text across the 5s polling re-render.
+    const saved = openIdForms.get(path);
+    if (saved) {
+      idForm.style.display = "flex";
+      idInput.value = saved;
+    }
     if (idToggle) {
       idToggle.addEventListener("click", () => {
-        const form = card.querySelector("[data-id-form]");
-        const visible = form.style.display !== "none";
-        form.style.display = visible ? "none" : "flex";
-        if (!visible) form.querySelector("[data-id-input]").focus();
+        const visible = idForm.style.display !== "none";
+        idForm.style.display = visible ? "none" : "flex";
+        if (visible) openIdForms.delete(path);
+        else {
+          openIdForms.set(path, idInput.value);
+          idInput.focus();
+        }
       });
     }
+    idInput.addEventListener("input", () => openIdForms.set(path, idInput.value));
 
     const idGo = card.querySelector("[data-id-go]");
     if (idGo) {
@@ -316,7 +335,7 @@ async function loadInbox() {
       };
       idGo.addEventListener("click", async () => {
         // Raw pass-through: no client-side URL parsing or extraction.
-        const raw = card.querySelector("[data-id-input]").value.trim();
+        const raw = idInput.value.trim();
         if (!raw) return;
         idGo.disabled = true;
         idGo.textContent = "Starting…";
@@ -398,6 +417,10 @@ async function loadInbox() {
 
     dirsEl.appendChild(card);
   });
+
+  for (const p of [...openIdForms.keys()]) {
+    if (!livePaths.has(p)) openIdForms.delete(p);
+  }
 
   const pendingEl = $("#pending-reviews");
   pendingEl.innerHTML = "";
