@@ -36,7 +36,7 @@ Before running the server, wipe existing library databases, temporary state, and
 
 ```bash
 rm -f .config/library.db .config/library.db-*.bak && rm -rf .library
-rm -f .config/state.pickle && rm -rf .config/webimport
+rm -f .config/state.pickle && rm -rf .config/webimport && find .inbox -name .webimport_imported -delete
 rm -rf .inbox
 mkdir -p .inbox
 ```
@@ -242,7 +242,7 @@ Navigate to the "Library" tab to confirm both entities were imported into the li
 **Expected Outcome:**
 - Two distinct album records exist in the library.
 - Both albums have `navidrome_library` attribute set to `unassigned`.
-- Files exist under `.library/` structured according to beets path templates (e.g. `.library/Disney/Mulan/...` and `.library/Carly Rae Jepsen/...`).
+- Files exist under `.library/` structured according to beets path templates (e.g. `.library/unassigned/Disney/Mulan/...` and `.library/unassigned/Carly Rae Jepsen/...`).
 
 ---
 

@@ -29,7 +29,7 @@ Wipe the test library database and destination directories before running:
 
 ```bash
 rm -f .config/library.db .config/library.db-*.bak && rm -rf .library
-rm -f .config/state.pickle && rm -rf .config/webimport
+rm -f .config/state.pickle && rm -rf .config/webimport && find .inbox -name .webimport_imported -delete
 ```
 
 ### 2. Start the Server

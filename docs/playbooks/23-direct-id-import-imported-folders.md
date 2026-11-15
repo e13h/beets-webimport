@@ -33,7 +33,7 @@ Same as playbook 22: `musicbrainz.org`/`*.musicbrainz.org`,
 
 ```bash
 rm -f .config/library.db .config/library.db-*.bak && rm -rf .library
-rm -f .config/state.pickle && rm -rf .config/webimport
+rm -f .config/state.pickle && rm -rf .config/webimport && find .inbox -name .webimport_imported -delete
 BEETSDIR=./.config .venv/bin/beet webimport
 ```
 

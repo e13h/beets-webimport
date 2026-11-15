@@ -11,14 +11,14 @@ This playbook provides end-to-end verification for the import, apply, and undo w
 2. The user initiates import via the web UI and inspects initial match candidates in the review modal.
 3. The user overrides automatic matching by providing a specific MusicBrainz Release ID (`a5483fb3-634b-4254-a966-de33cefd1f17`) through the UI's search-by-ID input (`[data-mbid]`, `[data-use-id]`).
 4. The candidate list updates with the target release, and the user selects and applies the match (`[data-select]`).
-5. Beets imports the files in copy mode (`copy: yes`), writes metadata tags, sets `navidrome_library: unassigned` (`set_fields`), fetches/embeds `cover.jpg`, and registers a Grace Period undo entry.
+5. Beets imports the files in copy mode (`copy: yes`), writes metadata tags, sets `navidrome_library: unassigned` (`set_fields`), fetches and embeds cover art, and registers a Grace Period undo entry.
 6. The user views the undo record in the UI's Undo tab (`#tabs button[data-tab="undo"]`).
 7. The user triggers undo from the UI (`[data-undo]`), confirming library database rows and copied files in `.library/` are deleted while the original inbox files in `.inbox/` remain completely intact (ADR-0001).
 
 ### Verifications
 1. **Inbox Review Initiation**: Clicking "Start import" (`[data-start]`) queues the inbox folder and produces an "Awaiting candidate review" card with a "Review" button (`[data-review]`) under `#pending-reviews`.
 2. **Search-by-ID Override**: Entering target MBID `a5483fb3-634b-4254-a966-de33cefd1f17` into `[data-mbid]` and clicking `[data-use-id]` queries MusicBrainz and refreshes the candidate list with the forced release.
-3. **Apply & File Placement**: Selecting the forced candidate (`[data-select]`) imports audio files under `.library/` according to beets' directory structure templates, assigns `navidrome_library=unassigned`, and fetches/embeds cover art (`cover.jpg`).
+3. **Apply & File Placement**: Selecting the forced candidate (`[data-select]`) imports audio files under `.library/` according to beets' directory structure templates, assigns `navidrome_library=unassigned`, and fetches and embeds cover art (art file removed after embedding).
 4. **Grace Period Registration**: The applied import is registered in the in-memory `GracePeriodManager` and visible in the web UI under `#undo-list` with an active countdown timer.
 5. **ID-Scoped Undo**: Clicking `[data-undo]` executes `remove(delete=True)` on the exact captured IDs, deleting the library files and SQLite DB entries while leaving the original files in `.inbox/` untouched.
 
@@ -42,7 +42,7 @@ Before starting the server, wipe existing library databases, temporary cache sta
 
 ```bash
 rm -f .config/library.db .config/library.db-*.bak && rm -rf .library
-rm -f .config/state.pickle && rm -rf .config/webimport
+rm -f .config/state.pickle && rm -rf .config/webimport && find .inbox -name .webimport_imported -delete
 ```
 
 Ensure the test inbox folder `.inbox/Mulan (Original Motion Picture Soundtrack)` is present with its 4 audio tracks:
@@ -240,10 +240,11 @@ Verify externally observable filesystem and library outcomes:
 
 ```bash
 # 1. Verify files copied under .library/ (copy-mode placement)
-ls -la ".library/Jerry Goldsmith, Matthew Wilder & David Zippel/Mulan (Original Motion Picture Soundtrack)"
+ls -la ".library/unassigned/Jerry Goldsmith, Matthew Wilder & David Zippel/Mulan (Original Motion Picture Soundtrack)"
 
-# 2. Verify cover art was fetched and placed as cover.jpg
-test -f ".library/Jerry Goldsmith, Matthew Wilder & David Zippel/Mulan (Original Motion Picture Soundtrack)/cover.jpg" && echo "cover.jpg exists"
+# 2. Verify cover art was fetched and embedded (homelab config sets
+#    embedart.remove_art_file: yes, so no art file remains on disk)
+.venv/bin/python -c "import glob,mediafile,sys; f=sorted(glob.glob('.library/unassigned/Jerry*/Mulan*/*.mp3'))[0]; sys.exit(0 if mediafile.MediaFile(f).art else 1)" && echo "art embedded"
 
 # 3. Verify original files in .inbox/ remain intact (ADR-0001)
 ls -la ".inbox/Mulan (Original Motion Picture Soundtrack)"
@@ -253,8 +254,8 @@ BEETSDIR=./.config .venv/bin/beet info -a "Mulan"
 ```
 
 **Expected Observable Outcome:**
-- Files copied to `.library/Jerry Goldsmith, Matthew Wilder & David Zippel/Mulan (Original Motion Picture Soundtrack)/`.
-- `cover.jpg` exists in the album library directory.
+- Files copied to `.library/unassigned/Jerry Goldsmith, Matthew Wilder & David Zippel/Mulan (Original Motion Picture Soundtrack)/`.
+- Cover art is embedded in the tracks (no `albumart.jpg` left on disk — `remove_art_file: yes`).
 - `navidrome_library: unassigned` is set on the album and items.
 - All 4 original audio files in `.inbox/Mulan (Original Motion Picture Soundtrack)/` remain present and unmodified.
 
@@ -335,7 +336,7 @@ Verify that the library files and database entry were removed, while the inbox o
 BEETSDIR=./.config .venv/bin/beet ls -a "Mulan"
 
 # 2. Verify library destination directory is removed / empty
-ls ".library/Jerry Goldsmith, Matthew Wilder & David Zippel" 2>/dev/null || echo "Library directory removed"
+ls ".library/unassigned/Jerry Goldsmith, Matthew Wilder & David Zippel" 2>/dev/null || echo "Library directory removed"
 
 # 3. Verify inbox originals are untouched and ready for re-import
 ls -la ".inbox/Mulan (Original Motion Picture Soundtrack)"

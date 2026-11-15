@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = ["pytest", "pyacoustid"]  # pyacoustid: chroma plugin, as on the homelab
 
 [tool.setuptools.packages.find]
 include = ["beetsplug*"]

@@ -14,7 +14,7 @@ Ensure a clean test environment before starting the server:
 
 ```bash
 rm -f .config/library.db .config/library.db-*.bak && rm -rf .library
-rm -f .config/state.pickle && rm -rf .config/webimport
+rm -f .config/state.pickle && rm -rf .config/webimport && find .inbox -name .webimport_imported -delete
 ```
 
 Ensure an inbox directory exists under `.inbox/` (for instance `.inbox/Mulan (Original Motion Picture Soundtrack)` or an audio file directory).
@@ -267,7 +267,7 @@ Stop the server process when testing concludes and clean up disposable files if 
 ```bash
 # Clean up temporary test files
 rm -f .config/library.db .config/library.db-*.bak && rm -rf .library
-rm -f .config/state.pickle && rm -rf .config/webimport
+rm -f .config/state.pickle && rm -rf .config/webimport && find .inbox -name .webimport_imported -delete
 ```
 
 ---

@@ -33,7 +33,7 @@ Wipe existing database and library state, and ensure a test album is imported in
 
 ```bash
 rm -f .config/library.db .config/library.db-*.bak && rm -rf .library
-rm -f .config/state.pickle && rm -rf .config/webimport
+rm -f .config/state.pickle && rm -rf .config/webimport && find .inbox -name .webimport_imported -delete
 ```
 
 Create and import a minimal test fixture if the library is empty:

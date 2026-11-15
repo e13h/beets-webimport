@@ -38,7 +38,7 @@ targeted lookup registers a review task with an empty candidate list and
 
 ```bash
 rm -f .config/library.db .config/library.db-*.bak && rm -rf .library
-rm -f .config/state.pickle && rm -rf .config/webimport
+rm -f .config/state.pickle && rm -rf .config/webimport && find .inbox -name .webimport_imported -delete
 ```
 
 Ensure the test inbox folder is present:
@@ -174,12 +174,12 @@ see the timing facts in `docs/agents/dev-environment.md`):
 Verify filesystem state:
 
 ```bash
-test -f ".library/Jerry Goldsmith, Matthew Wilder & David Zippel/Mulan (Original Motion Picture Soundtrack)/cover.jpg" && echo "applied"
+.venv/bin/python -c "import glob,mediafile,sys; f=sorted(glob.glob('.library/unassigned/Jerry*/Mulan*/*.mp3'))[0]; sys.exit(0 if mediafile.MediaFile(f).art else 1)" && echo "applied"
 BEETSDIR=./.config .venv/bin/beet ls -a | wc -l   # 1 album
 ```
 
 **Expected Observable Outcome:**
-- Album applied under `.library/` with cover art; 1 album in library;
+- Album applied under `.library/unassigned/` with embedded cover art; 1 album in library;
   undo record present.
 
 ### Step 4: Reset, then Submit a Bogus ID (Retry Error State)

@@ -16,7 +16,7 @@ Before running the server, wipe any previous library database / files and create
 
 ```bash
 rm -f .config/library.db .config/library.db-*.bak && rm -rf .library
-rm -f .config/state.pickle && rm -rf .config/webimport
+rm -f .config/state.pickle && rm -rf .config/webimport && find .inbox -name .webimport_imported -delete
 cp -r .inbox/Mulan .inbox/Mulan_dup
 ```
 
@@ -125,7 +125,7 @@ The playbook queries live MusicBrainz and Cover Art Archive endpoints for metada
 3. **Expected Observable Outcome:**
    - The review modal closes.
    - The worker thread acquires the global Apply Lock (ADR-0006).
-   - Beets writes tags, copies files to `.library/Jerry Goldsmith, Matthew Wilder & David Zippel/Mulan (Original Motion Picture Soundtrack)/`, adds the album to `.config/library.db`, embeds cover art, and releases the Apply Lock.
+   - Beets writes tags, copies files to `.library/unassigned/Jerry Goldsmith, Matthew Wilder & David Zippel/Mulan (Original Motion Picture Soundtrack)/`, adds the album to `.config/library.db`, embeds cover art, and releases the Apply Lock.
    - The first album is removed from `#pending-reviews`.
    - Only the second album (`Mulan_dup`) remains under `#pending-reviews`.
 

@@ -9,12 +9,17 @@ source of truth and current work breakdown), and `docs/adr/`
 ## Local dev environment (already set up)
 
 - **Virtualenv:** `.venv/` at the repo root. Always use `.venv/bin/python`
-  and `.venv/bin/beet` — there is no global beets. `pip install -e .` has
-  already been run.
+  and `.venv/bin/beet` — there is no global beets. Install with
+  `pip install -e '.[dev]'` (includes `pyacoustid` for the `chroma` plugin).
+- **System tools the homelab plugins need:** `brew install chromaprint mp3gain`
+  (`fpcalc` for `chroma`; `mp3gain` for `replaygain`, which refuses to load
+  without it and aborts every `beet` command).
 - **Python 3.14**, **beets 2.13.1** (verify with `.venv/bin/beet version`).
+  The homelab container runs `lscr.io/linuxserver/beets:latest`, so its
+  beets version can run ahead of this one.
 - **Disposable test setup** (all inside the repo, safe to wipe):
-  - Config: `.config/config.yaml`
-  - Library DB: `.config/library.db` (git-ignore-worthy; regenerated)
+  - Config: layered so dev runs the homelab's exact settings (see below).
+  - Library DB: `.config/library.db` (git-ignored; regenerated)
   - Music dir (import destination, copy-mode): `.library/`
   - Inbox: `.inbox/` — contains a 4-track Mulan album for hello-world tests.
 - **Run the server:** `BEETSDIR=./.config .venv/bin/beet webimport`
@@ -22,7 +27,7 @@ source of truth and current work breakdown), and `docs/adr/`
 - **Reset the disposable library between test runs:**
   ```bash
   rm -f .config/library.db .config/library.db-*.bak && rm -rf .library
-  rm -f .config/state.pickle && rm -rf .config/webimport   # optional, fuller reset
+  rm -f .config/state.pickle && rm -rf .config/webimport && find .inbox -name .webimport_imported -delete  # fuller reset; markers make folders look already-imported
   ```
 
 ## The single most important gotcha: `plugins:` REPLACES the default
@@ -34,8 +39,37 @@ plugin, it silently does nothing:
 - Drop `fetchart`/`embedart` → import "succeeds" but no cover art is
   fetched/embedded (`has_art: False`, no `cover.jpg`).
 
-`.config/config.yaml` therefore lists all of:
-`musicbrainz, fetchart, embedart, webimport`. Keep it that way.
+The plugin list is whatever the homelab runs (see below); don't trim it locally.
+
+## Dev config mirrors the homelab config
+
+`.config/config.yaml` only does `include: [homelab.yaml, local.yaml]`.
+beets applies includes on top of the main file in order, so later files win:
+
+- `.config/homelab.yaml` — **verbatim** copy of
+  `selfhosted/services/reptile/beets/config-beets/config.yaml`. All
+  behavior settings live here. Change them here, then copy the file to the
+  selfhosted repo (or the other way round).
+- `.config/local.yaml` — maps container mounts to repo dirs and nothing else:
+  `directory` (`/music` → `.library`), `library` and `import.log`
+  (`/config` → `.config`), `webimport.inbox_dir` (`/downloads` → `.inbox`).
+
+`tests/test_homelab_config_parity.py` enforces this: the copy must match the
+selfhosted repo (skipped if that repo isn't at `../selfhosted`; override with
+`HOMELAB_BEETS_CONFIG`), `local.yaml` may only set those path keys, and every
+homelab plugin must load locally.
+
+Consequences of the homelab settings that tests and playbooks must expect:
+- Albums land at `.library/<navidrome_library>/<albumartist>/<album>/`,
+  i.e. `.library/unassigned/...` after a default import.
+- `embedart.remove_art_file: yes` deletes the fetched `albumart.jpg` after
+  embedding, so `artpath` ends up null. Check for embedded art, not an art
+  file; library thumbnails come from the embedded-art fallback.
+- `chroma` fingerprints every track on import (AcoustID lookups), which
+  costs real time even for a Direct ID Import.
+- `scrub: auto` strips existing tags before beets writes its own.
+- `webimport` uses its built-in defaults (grace period, `tag_fields`), since
+  the homelab sets only host/port/inbox.
 
 ## Testing workflows (Playwright playbooks + pytest)
 

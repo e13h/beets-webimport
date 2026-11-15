@@ -24,7 +24,7 @@ Clear any existing library database, cache files, and imported media before begi
 
 ```bash
 rm -f .config/library.db .config/library.db-*.bak && rm -rf .library
-rm -f .config/state.pickle && rm -rf .config/webimport
+rm -f .config/state.pickle && rm -rf .config/webimport && find .inbox -name .webimport_imported -delete
 ```
 
 Ensure test audio files exist in `.inbox/Mulan (Original Motion Picture Soundtrack)`:

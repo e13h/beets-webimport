@@ -1,0 +1,13 @@
+# Container mount -> local path. Only deployment-specific paths belong here;
+# tests/test_homelab_config_parity.py fails on any other key.
+#   /config     -> .config
+#   /music      -> .library
+#   /downloads  -> .inbox
+directory: /Users/evansmith/repos/beets-web-import/.library
+library: /Users/evansmith/repos/beets-web-import/.config/library.db
+
+import:
+  log: /Users/evansmith/repos/beets-web-import/.config/beet.log
+
+webimport:
+  inbox_dir: /Users/evansmith/repos/beets-web-import/.inbox
