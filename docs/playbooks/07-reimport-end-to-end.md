@@ -237,7 +237,7 @@ Import the initial Mulan test album into the disposable library to establish a b
    ```
 3. **Expected Observable Outcome:**
    - Review modal opens showing candidates returned by MusicBrainz.
-   - Focused candidate (`.candidate.focused`) shows track match info, distance rating, and cover-art resolution placeholder / preview (`.art-compare[data-art]`).
+   - Focused candidate (`.candidate.focused`) shows track match info and distance rating. (Library reimports leave album art unchanged: the art choice applies to inbox imports only.)
 
 ---
 

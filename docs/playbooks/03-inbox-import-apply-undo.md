@@ -209,7 +209,7 @@ Click "Review" on the updated task card to view the forced candidates.
 - Modal opens displaying the candidate match for the target release:
   `Jerry Goldsmith, Matthew Wilder & David Zippel – Mulan (Original Motion Picture Soundtrack) (1998)`.
 - Match distance is `0.00` (or near zero).
-- Dual cover-art preview container (`.art-compare[data-art]`) displays Front cover art thumbnails.
+- The "Album art after import" section (`.art-choice`) shows the art options with thumbnails; the selected release's Cover Art Archive option shows its size.
 - The candidate card contains an enabled "Select" button (`.candidate button[data-select]`).
 
 Click "Select" on the candidate to apply the import:

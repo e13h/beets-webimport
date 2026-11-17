@@ -134,24 +134,6 @@ button:disabled { opacity: .5; cursor: default; }
   font-size: 14px;
 }
 
-.art-compare { display: flex; gap: 10px; margin-top: 8px; align-items: center; }
-.art-compare img {
-  width: 90px; height: 90px; object-fit: cover; border-radius: 6px; background: #000;
-}
-.art-unavailable {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.art-preview-retry {
-  padding: 4px 10px;
-  font-size: 12px;
-}
-.art-badge { font-size: 12px; padding: 2px 8px; border-radius: 10px; }
-.art-badge.match { background: var(--ok); }
-.art-badge.mismatch { background: var(--danger); }
-
 /* Spinners & Progress Indicators */
 .spinner {
   display: inline-block;
@@ -494,11 +476,9 @@ button:disabled { opacity: .5; cursor: default; }
 .art-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .art-option-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .art-choice-note { font-size: 12px; }
-.art-replaced .candidate.focused .art-compare { position: relative; opacity: .45; }
-.art-replaced .candidate.focused .art-compare::before {
-  content: "Not used: see album art above"; position: absolute; top: 4px; left: 4px; z-index: 1;
-  background: rgba(0,0,0,.75); color: #fff; font-size: 11px; padding: 2px 6px; border-radius: 6px;
-}
+.art-option.disabled { opacity: .55; cursor: default; }
+.art-broken { font-size: 11px; display: flex; height: 100%; align-items: center; justify-content: center; }
+button.small { padding: 2px 8px; font-size: 12px; align-self: flex-start; margin-top: 2px; }
 .purchase-note { font-size: 12px; margin: 0 0 8px; }
 .badge.purchased { background: rgba(80, 200, 120, .18); color: #7fdc9f; font-size: 11px; padding: 1px 6px; border-radius: 6px; margin-left: 4px; }
 

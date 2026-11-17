@@ -80,19 +80,12 @@ per ADR-0004). Superseded by any later move-producing operation; undone
 away with the item.
 _Avoid_: move queue, deferred move
 
-**Source Art**:
-The cover image associated with the currently-selected import candidate
-(from MusicBrainz/Spotify/etc.), one of the two thumbnails shown in
-candidate review. Shows a "No Cover Art Available" placeholder when the
-candidate has none — never substitutes Resolved Art in its place, so the
-match/mismatch indicator stays meaningful.
-
-**Resolved Art**:
-The image fetchart/embedart will actually write to the file for the
-currently-selected candidate, computed by running fetchart's real
-resolution logic (source priority, minimum resolution, aspect ratio, local
-`cover.jpg` precedence, overwrite rules) rather than a reimplementation of
-those rules. Computed lazily, only for the highlighted candidate.
+**Art Choice**:
+The album art the user picks in candidate review for after import: keep the
+files' current embedded art, the selected release's Cover Art Archive art,
+iTunes Store art (iTunes purchases), or an image file in the inbox folder.
+webimport applies it as the album's art; embedart embeds it (ADR-0013).
+_Avoid_: source art, resolved art (the retired dual preview)
 
 **Apply Lock**:
 The single global mutual-exclusion lock serializing the db-write/move

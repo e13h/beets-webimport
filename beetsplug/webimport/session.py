@@ -34,6 +34,7 @@ def _serialize_album_match(i, match) -> dict:
         "year": getattr(info, "year", None),
         "label": getattr(info, "label", None),
         "album_id": getattr(info, "album_id", None),
+        "releasegroup_id": getattr(info, "releasegroup_id", None),
         "media": getattr(info, "media", None),
         "country": getattr(info, "country", None),
         "data_source": getattr(info, "data_source", None),
@@ -86,6 +87,9 @@ class WebImportSession(importer.ImportSession):
         # Reported in the review payload; an empty result then falls back
         # to a normal search instead of showing the "no candidate" error.
         self.matched_via: dict | None = None
+        # Image bytes chosen in the review, set as the album's art in the
+        # file stage (artchoice.on_import_task_files). None: leave art alone.
+        self.pending_art: bytes | None = None
         # The ID the pipeline's own first lookup was restricted to (see
         # set_config); reported once by choose_match as attempted_search_id.
         self._initial_search_id: str | None = None
@@ -230,6 +234,8 @@ class WebImportSession(importer.ImportSession):
 
     def _apply_decision_album(self, task, decision):
         kind = decision.get("action")
+        # Resolved by the decide endpoint from the review's art choice.
+        self.pending_art = decision.get("_art")
 
         if kind == "skip":
             return Action.SKIP

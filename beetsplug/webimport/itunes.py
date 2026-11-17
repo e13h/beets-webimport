@@ -5,10 +5,7 @@ Files bought from the iTunes Store carry their catalog IDs in MP4 atoms:
 Apple's public lookup API returns the exact artwork URL, which serves the
 original upload when asked for a size at or above it.
 
-Saving that image as `cover.jpg` in the inbox folder makes it the album
-art: fetchart's `filesystem` source (first in the configured sources)
-searches the import's source folder and ranks names containing "cover"
-first. No beets config change is needed.
+The review offers that image as an album art choice (artchoice.py).
 
 It also finds the matching MusicBrainz release: MusicBrainz releases
 link to their Apple Music / iTunes listing, and its URL lookup returns the
@@ -111,7 +108,7 @@ def full_res_url(artwork_url: str) -> str:
     return re.sub(r"/\d+x\d+[a-z]*(-\d+)?\.(jpg|png|webp)$", r"/10000x10000bb.\2", artwork_url)
 
 
-def _fetch(collection_id: int, country: str | None) -> tuple[dict, bytes | None]:
+def lookup_album(collection_id: int, country: str | None) -> tuple[dict, bytes | None]:
     with _cache_lock:
         hit = _cache.get(collection_id)
     if hit is not None:
@@ -151,37 +148,6 @@ def _fetch(collection_id: int, country: str | None) -> tuple[dict, bytes | None]
     with _cache_lock:
         _cache[collection_id] = (info, data)
     return info, data
-
-
-def art_for_dir(folder: Path) -> dict | None:
-    """iTunes art details for an inbox folder, or None if it isn't an
-    iTunes purchase."""
-    ids = detect_ids(folder)
-    if ids is None:
-        return None
-    info, _ = _fetch(ids["collection_id"], ids["country"])
-    return {**info, "country": ids["country"]}
-
-
-def image_for_collection(collection_id: int) -> bytes | None:
-    with _cache_lock:
-        hit = _cache.get(collection_id)
-    return hit[1] if hit else None
-
-
-def save_cover(folder: Path, **kw) -> Path:
-    """Make the folder's iTunes art the image fetchart picks (see
-    sourceart.save_as_cover; `kw` passes fetchart's cover_names/cautious)."""
-    folder = Path(folder)
-    ids = detect_ids(folder)
-    if ids is None:
-        raise ValueError("Not an iTunes purchase (no iTunes album ID in the files).")
-    info, data = _fetch(ids["collection_id"], ids["country"])
-    if not data:
-        raise ValueError(info.get("error") or "No iTunes artwork available.")
-    from .sourceart import save_as_cover
-
-    return save_as_cover(folder, data, info.get("mime"), **kw)
 
 
 # -- MusicBrainz release by Apple Music link --------------------------------
@@ -252,7 +218,7 @@ def musicbrainz_match_for_dir(folder: Path) -> dict | None:
     ids = detect_ids(folder)
     if ids is None:
         return None
-    info, _ = _fetch(ids["collection_id"], ids["country"])  # cached; gives the slugged link
+    info, _ = lookup_album(ids["collection_id"], ids["country"])  # cached; gives the slugged link
     release_ids = musicbrainz_release_ids(ids["collection_id"], info.get("store_url"))
     if release_ids is None:
         return None

@@ -1,6 +1,5 @@
-"""iTunes art override: detect an iTunes purchase in an inbox folder, look
-up its artwork by catalog ID, and save it as the folder's cover image so
-fetchart's filesystem source uses it instead of Cover Art Archive."""
+"""iTunes purchases: detect the store album ID, look up its artwork,
+and find the MusicBrainz release linked to its Apple Music listing."""
 from __future__ import annotations
 
 import struct
@@ -83,37 +82,25 @@ def test_full_resolution_url():
     assert itunes.full_res_url(ART100).endswith("/10000x10000bb.jpg")
 
 
-def test_lookup_art_downloads_full_res_once(purchase_dir, fake_net):
-    info = itunes.art_for_dir(purchase_dir)
+def test_lookup_album_downloads_full_res_once(purchase_dir, fake_net):
+    ids = itunes.detect_ids(purchase_dir)
+    info, data = itunes.lookup_album(ids["collection_id"], ids["country"])
     assert info["collection_id"] == 1440662312
     assert info["collection_name"].startswith("Mulan")
     assert info["store_url"].startswith("https://music.apple.com/")
     assert (info["width"], info["height"]) == (1500, 1500)
+    assert data == jpeg(1500, 1500)
     # Lookup used the purchase storefront; second call is cached.
     assert fake_net[0][1]["country"] == "us"
-    itunes.art_for_dir(purchase_dir)
+    itunes.lookup_album(ids["collection_id"], ids["country"])
     assert len(fake_net) == 2  # one lookup + one image download
-
-
-def test_save_cover_writes_cover_jpg(purchase_dir, fake_net):
-    path = itunes.save_cover(purchase_dir)
-    assert path.name == "cover.jpg"
-    assert path.read_bytes() == jpeg(1500, 1500)
-
-
-def test_save_cover_sets_aside_existing_cover(purchase_dir, fake_net):
-    (purchase_dir / "cover.png").write_bytes(b"user art")
-    itunes.save_cover(purchase_dir)
-    assert (purchase_dir / "cover.jpg").exists()
-    assert not (purchase_dir / "cover.png").exists()
-    assert (purchase_dir / "cover.png.before-webimport").read_bytes() == b"user art"
 
 
 def test_lookup_without_results(purchase_dir, monkeypatch):
     monkeypatch.setattr(itunes.requests, "get", lambda *a, **k: Resp(payload={"resultCount": 0, "results": []}))
     itunes.clear_cache()
-    info = itunes.art_for_dir(purchase_dir)
-    assert info["collection_id"] == 1440662312 and info["error"]
+    info, data = itunes.lookup_album(1440662312, "us")
+    assert info["collection_id"] == 1440662312 and info["error"] and data is None
 
 
 # -- MusicBrainz release lookup by Apple Music link -------------------------

@@ -36,8 +36,8 @@ beets' default `plugins:` is `[musicbrainz]`. Any `plugins:` list in
 `config.yaml` **overrides** it — it does not merge. If you forget to list a
 plugin, it silently does nothing:
 - Drop `musicbrainz` → candidate lookups return **zero** results (no error).
-- Drop `fetchart`/`embedart` → import "succeeds" but no cover art is
-  fetched/embedded (`has_art: False`, no `cover.jpg`).
+- Drop `embedart` → import "succeeds" but the chosen album art is never
+  embedded.
 
 The plugin list is whatever the homelab runs (see below); don't trim it locally.
 
@@ -62,7 +62,9 @@ homelab plugin must load locally.
 Consequences of the homelab settings that tests and playbooks must expect:
 - Albums land at `.library/<navidrome_library>/<albumartist>/<album>/`,
   i.e. `.library/unassigned/...` after a default import.
-- `embedart.remove_art_file: yes` deletes the fetched `albumart.jpg` after
+- `fetchart.auto: no`: webimport sets import-time art from the review's art
+  choice (ADR-0013, `artchoice.py`); fetchart only runs via `beet fetchart`.
+- `embedart.remove_art_file: yes` deletes the album's `albumart.jpg` after
   embedding, so `artpath` ends up null. Check for embedded art, not an art
   file; library thumbnails come from the embedded-art fallback.
 - `chroma` fingerprints every track on import (AcoustID lookups), which
@@ -149,19 +151,17 @@ skip `.venv`, so use `read_file` with paths, or `list_directory`).
   `query is not None`, forces `resume=False`/`incremental=False` (relevant to
   reimport). The pipeline runs `run_parallel` when `config["threaded"]`.
 
-## fetchart specifics that matter for cover-art code
+## Cover Art Archive notes (artchoice.py / coverart.py)
 
-- CAA source **id is `coverart`** (with matching criteria `release` /
-  `releasegroup` as a separate axis) — NOT `coverart:release`. Config entries
-  may be bare (`coverart`) or qualified (`coverart:release`).
-- Default `sources`: `[filesystem, coverart, itunes, amazon, albumart,
-  cover_art_url]`.
-- fetchart resolves CAA via the **JSON API** (`/release/{mbid}` → parse
-  `images[].image`, filter `types` containing `Front`), NOT the
-  `/{mbid}/front` redirect (which bounces to archive.org and 502s often).
-  `coverart.py` now mirrors this.
-- CAA/archive.org return **transient 502s** regularly — retry, don't treat as
-  fatal. `coverart.py` retries and reports an `unavailable` flag.
+- Use the **JSON API** (`/release/{mbid}` or `/release-group/{mbid}` → the
+  first image with `types` containing `Front`), as fetchart does, not the
+  `/{mbid}/front` redirect.
+- Every request is three hops (`coverartarchive.org` → `archive.org` → a
+  storage server) and archive.org returns **transient 502s** regularly:
+  retry, and treat "couldn't reach" (not cached) differently from "no art"
+  (cached).
+- Previews are served by the plugin (`/api/art/<sha1>`), never hotlinked:
+  CAA links are `http://`, uncacheable redirects, and have no retry.
 
 ## Field-name / serialization landmines (caught by running, not reading)
 
