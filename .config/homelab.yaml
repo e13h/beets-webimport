@@ -31,6 +31,14 @@ paths:
   singleton: $navidrome_library/Non-Album/$artist/$title
   comp: $navidrome_library/Compilations/$album%aunique{}/$track $title
 
+match:
+  distance_weights:
+    # Mostly partial albums (a few tracks bought from an album): keep them
+    # matched to the full release without the default 0.9 weight pushing
+    # every partial match to ~0.5. Measured: correct release 0.49 -> 0.17
+    # for one track of 11; a wrong album stays at ~0.39.
+    missing_tracks: 0.1
+
 musicbrainz:
   external_ids:
     discogs: yes
