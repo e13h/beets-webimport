@@ -17,6 +17,8 @@ source-dispatch in `resolve_candidate_art` accordingly.
 from __future__ import annotations
 
 import io
+import threading
+import time
 from pathlib import Path
 
 import requests
@@ -181,7 +183,36 @@ def _caa_api_url(mbid: str, kind: str) -> str:
     return f"https://coverartarchive.org/{segment}/{mbid}"
 
 
+# CAA lookups take 3-4s each and the preview re-resolves on every
+# candidate click, so definitive answers (art list, or 404 = no art) are
+# cached in memory per (kind, mbid). "Couldn't check" (None) is never
+# cached, so a transient outage retries on the next click. Process
+# lifetime only, like the rest of the plugin's state (ADR-0004).
+CAA_CACHE_TTL = 3600.0
+_caa_cache: dict[tuple[str, str], tuple[float, list[dict]]] = {}
+_caa_cache_lock = threading.Lock()
+
+
+def clear_caa_cache() -> None:
+    with _caa_cache_lock:
+        _caa_cache.clear()
+
+
 def _caa_front_images(mbid: str, kind: str) -> list[dict] | None:
+    key = (kind, mbid)
+    now = time.monotonic()
+    with _caa_cache_lock:
+        hit = _caa_cache.get(key)
+        if hit is not None and now - hit[0] < CAA_CACHE_TTL:
+            return hit[1]
+    images = _fetch_caa_front_images(mbid, kind)
+    if images is not None:
+        with _caa_cache_lock:
+            _caa_cache[key] = (now, images)
+    return images
+
+
+def _fetch_caa_front_images(mbid: str, kind: str) -> list[dict] | None:
     """Query the CAA JSON API and return the list of Front image records
     (each a dict with "image" + "thumbnails"), newest-first as CAA orders
     them. Returns None if the release is unknown or the service is
