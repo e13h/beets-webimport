@@ -132,8 +132,15 @@ def capture(item) -> dict:
     }
 
 
-def on_import_task_start(task, session):
+def capture_task(task, session):
     """Snapshot each item's original tags at the start of an inbox import.
+
+    Called by WebImportSession when a task reaches review (nothing has
+    been written to the files yet), not from an `import_task_start`
+    listener: beets wraps plugin listeners in a per-plugin log-level
+    toggle that asserts no other call is in progress, so a listener
+    that fires during candidate lookup crashes one of two parallel
+    imports.
 
     Only for webimport's own path-based sessions: a Library-tab reimport
     (query-based) works on already-tagged library items, and a snapshot
@@ -152,9 +159,6 @@ def on_import_task_start(task, session):
         except Exception:  # noqa: BLE001 -- never block an import on this
             pass
 
-
-def register(register_listener) -> None:
-    register_listener("import_task_start", on_import_task_start)
 
 
 def load(obj) -> dict | None:

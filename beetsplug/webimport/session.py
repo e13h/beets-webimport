@@ -18,6 +18,8 @@ from beets import autotag, importer
 from beets.importer import Action, DuplicateAction
 from beets.util import displayable_path
 
+from . import snapshot
+
 log = logging.getLogger("beets.webimport")
 
 
@@ -112,6 +114,7 @@ class WebImportSession(importer.ImportSession):
 
     # -- album matching -----------------------------------------------
     def choose_match(self, task: importer.ImportTask):
+        snapshot.capture_task(task, self)
         attempted_search_id = None
         if self._initial_search_id is not None:
             # The pipeline already ran the targeted lookup (set_config).
@@ -216,6 +219,7 @@ class WebImportSession(importer.ImportSession):
 
     # -- singleton (track) matching ------------------------------------
     def choose_item(self, task: importer.SingletonImportTask):
+        snapshot.capture_task(task, self)
         candidates_payload = [
             _serialize_item_match(i, m) for i, m in enumerate(task.candidates)
         ]

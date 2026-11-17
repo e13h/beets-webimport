@@ -67,27 +67,27 @@ def _session(paths=True):
 def test_listener_snapshots_inbox_items(tagged_wav):
     item = Item.from_path(str(tagged_wav))
     task = SimpleNamespace(is_album=True, items=[item])
-    snapshot.on_import_task_start(task=task, session=_session())
+    snapshot.capture_task(task=task, session=_session())
     assert json.loads(item[snapshot.SNAPSHOT_FIELD])["fields"]["title"] == "Original Title"
 
 
 def test_listener_never_overwrites_existing_snapshot(tagged_wav):
     item = Item.from_path(str(tagged_wav))
     item[snapshot.SNAPSHOT_FIELD] = '{"version": 1, "fields": {"title": "First"}}'
-    snapshot.on_import_task_start(task=SimpleNamespace(is_album=True, items=[item]), session=_session())
+    snapshot.capture_task(task=SimpleNamespace(is_album=True, items=[item]), session=_session())
     assert json.loads(item[snapshot.SNAPSHOT_FIELD])["fields"]["title"] == "First"
 
 
 def test_listener_skips_library_reimports(tagged_wav):
     item = Item.from_path(str(tagged_wav))
-    snapshot.on_import_task_start(task=SimpleNamespace(is_album=True, items=[item]), session=_session(paths=False))
+    snapshot.capture_task(task=SimpleNamespace(is_album=True, items=[item]), session=_session(paths=False))
     assert snapshot.SNAPSHOT_FIELD not in item
 
 
 def test_listener_ignores_other_sessions(tagged_wav):
     item = Item.from_path(str(tagged_wav))
     plain = SimpleNamespace(paths=[b"/x"], query=None)  # e.g. a CLI `beet import`
-    snapshot.on_import_task_start(task=SimpleNamespace(is_album=True, items=[item]), session=plain)
+    snapshot.capture_task(task=SimpleNamespace(is_album=True, items=[item]), session=plain)
     assert snapshot.SNAPSHOT_FIELD not in item
 
 
@@ -105,17 +105,6 @@ def test_real_import_stores_snapshot_and_explorer_shows_it(lib, tagged_wav, impo
     from beets import metadata_plugins
     monkeypatch.setattr(metadata_plugins, "candidates", lambda *a, **k: iter(()))
     monkeypatch.setattr(metadata_plugins, "albums_for_ids", lambda ids: iter(()))
-    snapshot.register(lambda event, fn: _listeners.setdefault(event, []).append(fn))
-    from beets import plugins
-    orig_send = plugins.send
-
-    def send(event, **kw):
-        for fn in _listeners.get(event, []):
-            fn(**kw)
-        return orig_send(event, **kw)
-
-    monkeypatch.setattr(plugins, "send", send)
-
     rm = ReviewManager()
     session = WebImportSession(lib, None, [str(tagged_wav.parent).encode()], None, rm, None)
     t = threading.Thread(target=session.run, daemon=True)
@@ -137,11 +126,20 @@ def test_real_import_stores_snapshot_and_explorer_shows_it(lib, tagged_wav, impo
     assert snapshot.SNAPSHOT_FIELD not in track["custom_fields"]
 
 
-_listeners: dict = {}
+def test_snapshot_is_not_a_beets_event_listener(lib, tmp_path):
+    """Regression: an import_task_start listener crashed one of two
+    parallel imports (beets' listener wrapper asserts the plugin's log
+    level is untouched, which isn't thread-safe). Capture happens in the
+    session instead."""
+    from unittest.mock import MagicMock
 
+    from beetsplug.webimport.server import create_app
 
-@pytest.fixture(autouse=True)
-def _reset_listeners():
-    _listeners.clear()
-    yield
-    _listeners.clear()
+    plugin = MagicMock()
+    cfg = {k: MagicMock(get=lambda typ, v=v: v) for k, v in {
+        "grace_period_seconds": 600, "candidate_search_workers": 2, "tag_fields": ["mood"],
+        "inbox_dir": str(tmp_path), "tag_store_path": str(tmp_path / "t.json"),
+        "apple_music_match": True}.items()}
+    create_app(lib, cfg, plugin)
+    events = [c.args[0] for c in plugin.register_listener.call_args_list]
+    assert "import_task_start" not in events

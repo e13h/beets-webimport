@@ -113,7 +113,6 @@ def create_app(lib, wi_config, plugin):
             is_staging_bin=bool(inbox_path and "_grouped" in str(inbox_path)),
         )
 
-    snapshot.register(plugin.register_listener)
     plugin.register_listener("album_imported", _on_album_imported)
     plugin.register_listener("item_imported", _on_item_imported)
 
@@ -160,6 +159,11 @@ def create_app(lib, wi_config, plugin):
                     marker_path.write_text(json.dumps(marker_data), encoding="utf-8")
                 except Exception as exc:
                     log.warning("webimport: failed to write imported marker to %s: %s", path, exc)
+        except Exception:
+            # Runs in a pool thread whose future nobody reads: without this
+            # the import just vanishes from the UI with no trace.
+            log.exception("webimport: import of %s failed", path)
+            raise
         finally:
             if session._lock_acquired:
                 apply_lock.release()
