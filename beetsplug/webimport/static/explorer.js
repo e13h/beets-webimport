@@ -96,6 +96,54 @@ function explorerSame(a, b) {
     || (explorerIsEmpty("", a) && explorerIsEmpty("", b));
 }
 
+// One field value: MusicBrainz/Discogs IDs as links (lists one per line),
+// long values collapsed, copy buttons for IDs.
+function explorerValueHtml(field, v) {
+  if (EXPLORER_LINKS[field] && Array.isArray(v) && v.length) {
+    // One ID per line, each with its own link and copy button.
+    return `<span class="id-list">${v.map((id) => `<span class="id-line">
+        <a href="${EXPLORER_LINKS[field]}${encodeURIComponent(id)}" target="_blank" rel="noopener">${escapeHtml(id)}</a><button class="link-btn" data-copy="${escapeHtml(id)}" title="Copy">copy</button>
+      </span>`).join("")}</span>`;
+  }
+  const text = explorerFormat(field, v);
+  const raw = typeof v === "object" ? JSON.stringify(v) : String(v ?? "");
+  let inner;
+  if (EXPLORER_LINKS[field] && typeof v === "string" && v) {
+    inner = `<a href="${EXPLORER_LINKS[field]}${encodeURIComponent(v)}" target="_blank" rel="noopener">${escapeHtml(text)}</a>`;
+  } else if (EXPLORER_LINKS[field] && typeof v === "number" && v) {
+    inner = `<a href="${EXPLORER_LINKS[field]}${v}" target="_blank" rel="noopener">${escapeHtml(text)}</a>`;
+  } else if (text.length > EXPLORER_LONG) {
+    inner = `<span class="long-value">${escapeHtml(text.slice(0, EXPLORER_LONG))}…</span> <button class="link-btn" data-expand>show all</button>`;
+  } else {
+    inner = escapeHtml(text);
+  }
+  const copy = EXPLORER_COPYABLE.has(field) && text ? `<button class="link-btn" data-copy="${escapeHtml(raw)}" title="Copy">copy</button>` : "";
+  return `<span class="field-value" title="${escapeHtml(raw)}" data-full="${text.length > EXPLORER_LONG ? escapeHtml(text) : ""}">${inner}</span>${copy}`;
+}
+
+// Copy buttons and "show all" for values rendered by explorerValueHtml.
+function explorerWireValues(el) {
+  el.querySelectorAll("[data-copy]").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      try {
+        await navigator.clipboard.writeText(btn.dataset.copy);
+        showToast("Copied", "success", 1500);
+      } catch {
+        showToast("Copy failed (clipboard needs HTTPS or localhost)", "error");
+      }
+    });
+  });
+  el.querySelectorAll("[data-expand]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const val = btn.parentElement.querySelector(".field-value");
+      val.textContent = val.dataset.full;
+      val.classList.add("expanded");
+      btn.remove();
+    });
+  });
+}
+
 async function renderAlbumExplorer(host, albumId) {
   host.innerHTML = '<div class="muted"><span class="spinner"></span> Loading metadata…</div>';
   let data;
@@ -307,28 +355,7 @@ async function renderAlbumExplorer(host, albumId) {
     return `<button class="disc-icon" data-disc-detail="${escapeHtml(detail)}" title="${escapeHtml(label + ":\n" + detail)}" aria-label="${escapeHtml(label)}">⚠</button>`;
   }
 
-  function renderValue(field, v) {
-    if (EXPLORER_LINKS[field] && Array.isArray(v) && v.length) {
-      // One ID per line, each with its own link and copy button.
-      return `<span class="id-list">${v.map((id) => `<span class="id-line">
-          <a href="${EXPLORER_LINKS[field]}${encodeURIComponent(id)}" target="_blank" rel="noopener">${escapeHtml(id)}</a><button class="link-btn" data-copy="${escapeHtml(id)}" title="Copy">copy</button>
-        </span>`).join("")}</span>`;
-    }
-    const text = explorerFormat(field, v);
-    const raw = typeof v === "object" ? JSON.stringify(v) : String(v ?? "");
-    let inner;
-    if (EXPLORER_LINKS[field] && typeof v === "string" && v) {
-      inner = `<a href="${EXPLORER_LINKS[field]}${encodeURIComponent(v)}" target="_blank" rel="noopener">${escapeHtml(text)}</a>`;
-    } else if (EXPLORER_LINKS[field] && typeof v === "number" && v) {
-      inner = `<a href="${EXPLORER_LINKS[field]}${v}" target="_blank" rel="noopener">${escapeHtml(text)}</a>`;
-    } else if (text.length > EXPLORER_LONG) {
-      inner = `<span class="long-value">${escapeHtml(text.slice(0, EXPLORER_LONG))}…</span> <button class="link-btn" data-expand>show all</button>`;
-    } else {
-      inner = escapeHtml(text);
-    }
-    const copy = EXPLORER_COPYABLE.has(field) && text ? `<button class="link-btn" data-copy="${escapeHtml(raw)}" title="Copy">copy</button>` : "";
-    return `<span class="field-value" title="${escapeHtml(raw)}" data-full="${text.length > EXPLORER_LONG ? escapeHtml(text) : ""}">${inner}</span>${copy}`;
-  }
+  const renderValue = explorerValueHtml;
 
   function renderPanel() {
     const node = state.selected.kind === "album" ? data.album : tracksById.get(state.selected.id);
@@ -407,24 +434,7 @@ async function renderAlbumExplorer(host, albumId) {
         detailEl.textContent = btn.dataset.discDetail;
       });
     });
-    bodyEl.querySelectorAll("[data-copy]").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        try {
-          await navigator.clipboard.writeText(btn.dataset.copy);
-          showToast("Copied", "success", 1500);
-        } catch {
-          showToast("Copy failed (clipboard needs HTTPS or localhost)", "error");
-        }
-      });
-    });
-    bodyEl.querySelectorAll("[data-expand]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const val = btn.parentElement.querySelector(".field-value");
-        val.textContent = val.dataset.full;
-        val.classList.add("expanded");
-        btn.remove();
-      });
-    });
+    explorerWireValues(bodyEl);
   }
 
   function artMeta(info) {
@@ -537,6 +547,179 @@ async function renderAlbumExplorer(host, albumId) {
     state.fileTags = { error: err.message };
   }
   if (!host.isConnected) return; // modal closed meanwhile
+  renderTree();
+  renderPanel();
+}
+
+// -- Tag preview (import review) ----------------------------------------------
+//
+// What importing with a candidate would do to each file's tags (from
+// /api/review/<task>/tag_preview). Same layout as the library explorer:
+// tree of "All tracks" + each file, and a field panel with "On file now" vs
+// "After import". Replaced and removed values (data the imported file
+// loses) are highlighted.
+
+const TP_RANK = { cleared: 3, changed: 2, added: 1, same: 0 };
+const TP_LABEL = {
+  changed: "The file's value is replaced",
+  cleared: "The file's value is removed",
+  added: "New: the file has no value for this field",
+  same: "Unchanged",
+};
+
+function tpWorstKind(counts) {
+  return Object.keys(counts).reduce((w, k) => (TP_RANK[k] > TP_RANK[w] ? k : w), "same");
+}
+
+function tpTrackLoss(track) {
+  return track.fields.filter((r) => r.kind === "changed" || r.kind === "cleared").length;
+}
+
+// Chip counts over fields (album-wide): a field counts as "replaced" if
+// any track loses its value for it.
+function tagPreviewCounts(data) {
+  const c = { changed: 0, cleared: 0, added: 0, same: 0 };
+  data.summary.forEach((s) => { c[tpWorstKind(s.counts)] += 1; });
+  return c;
+}
+
+function tagPreviewChips(data) {
+  const c = tagPreviewCounts(data);
+  return [
+    c.changed ? `<span class="tp-chip lost" title="Fields where the file's current value is replaced">⚠ ${c.changed} replaced</span>` : "",
+    c.cleared ? `<span class="tp-chip lost" title="Fields where the file's current value is removed">⚠ ${c.cleared} removed</span>` : "",
+    c.added ? `<span class="tp-chip added" title="Fields the file doesn't have yet">+${c.added} added</span>` : "",
+    `<span class="tp-chip">${c.same} unchanged</span>`,
+  ].join("");
+}
+
+function renderTagPreview(host, data) {
+  const state = { selected: "all", filter: "", showSame: false, onlyLoss: false };
+  host.innerHTML = `
+    <div class="explorer tag-preview">
+      <nav class="explorer-tree" aria-label="Files"></nav>
+      <section class="explorer-panel">
+        <button class="secondary explorer-back">&larr; Files</button>
+        <div class="explorer-tools">
+          <input type="search" placeholder="Filter fields…" class="explorer-filter" />
+          <label class="explorer-empty-toggle"><input type="checkbox" data-toggle="same" /> Show unchanged</label>
+          <label class="explorer-empty-toggle"><input type="checkbox" data-toggle="loss" /> Only replaced/removed</label>
+        </div>
+        <div class="explorer-body"></div>
+      </section>
+    </div>`;
+  const root = host.querySelector(".explorer");
+  const treeEl = host.querySelector(".explorer-tree");
+  const bodyEl = host.querySelector(".explorer-body");
+  host.querySelector(".explorer-filter").addEventListener("input", (e) => { state.filter = e.target.value.trim().toLowerCase(); renderPanel(); });
+  host.querySelector('[data-toggle="same"]').addEventListener("change", (e) => { state.showSame = e.target.checked; renderPanel(); });
+  host.querySelector('[data-toggle="loss"]').addEventListener("change", (e) => { state.onlyLoss = e.target.checked; renderPanel(); });
+  host.querySelector(".explorer-back").addEventListener("click", () => root.classList.remove("show-detail"));
+
+  function renderTree() {
+    const lossTracks = data.tracks.filter((t) => tpTrackLoss(t)).length;
+    let html = `<button class="tree-node tree-album ${state.selected === "all" ? "selected" : ""}" data-node="all">
+        <span class="tree-label">All files</span>
+        <span class="tree-sub muted">${data.tracks.length} file${data.tracks.length === 1 ? "" : "s"}</span>
+        ${lossTracks ? `<span class="disc-icon" title="${lossTracks} file(s) lose existing tag values">⚠ ${lossTracks}</span>` : ""}
+      </button>`;
+    data.tracks.forEach((t, i) => {
+      const loss = tpTrackLoss(t);
+      const sub = !t.matched ? "not matched to a track: tags unchanged"
+        : t.title_after && t.title_after !== t.title_before ? `→ ${t.track_after ? t.track_after + ". " : ""}${t.title_after}` : (t.title_before || "");
+      html += `<button class="tree-node tree-track ${state.selected === i ? "selected" : ""}" data-node="${i}" title="${escapeHtml(t.file)}">
+          <span class="tree-label">${escapeHtml(t.file)}</span>
+          <span class="tree-sub muted">${escapeHtml(sub)}</span>
+          ${loss ? `<span class="disc-icon" title="${loss} field(s) lose the file's current value">⚠ ${loss}</span>` : ""}
+        </button>`;
+    });
+    treeEl.innerHTML = html;
+    treeEl.querySelectorAll("[data-node]").forEach((b) => b.addEventListener("click", () => {
+      state.selected = b.dataset.node === "all" ? "all" : Number(b.dataset.node);
+      root.classList.add("show-detail");
+      renderTree();
+      renderPanel();
+    }));
+  }
+
+  // Rows for the selected node: [{field, before, after, kind, note}]
+  function rows() {
+    if (state.selected !== "all") {
+      return data.tracks[state.selected].fields.map((r) => ({ ...r }));
+    }
+    const n = data.tracks.length;
+    return data.summary.map((s) => {
+      const kind = tpWorstKind(s.counts);
+      const affected = kind === "same" ? 0 : (s.counts[kind] || 0);
+      return {
+        field: s.field, kind,
+        before: s.before, after: s.after,
+        beforeVaries: s.before_varies, afterVaries: s.after_varies,
+        note: n > 1 && kind !== "same" && affected < n ? `on ${affected} of ${n} files` : "",
+      };
+    });
+  }
+
+  function cell(field, v, varies) {
+    if (varies) return '<span class="muted tp-varies">differs per file</span>';
+    if (v === null || v === undefined) return '<span class="muted">—</span>';
+    return explorerValueHtml(field, v);
+  }
+
+  function renderPanel() {
+    const all = rows();
+    const visible = all.filter((r) =>
+      (state.showSame || r.kind !== "same")
+      && (!state.onlyLoss || r.kind === "changed" || r.kind === "cleared")
+      && (!state.filter || r.field.includes(state.filter)));
+    const byField = new Map(visible.map((r) => [r.field, r]));
+    const placed = new Set();
+    let html = "";
+    const track = state.selected === "all" ? null : data.tracks[state.selected];
+    html += `<h4>${track ? escapeHtml(track.file) : "All files"}</h4>`;
+    if (track && !track.matched) html += `<div class="explorer-note muted">Not matched to a track of this release: beets imports it without changing its tags.</div>`;
+    html += `<div class="tp-row tp-header"><span>Field</span><span>On file now</span><span>After import</span></div>`;
+    const group = (name, fields) => {
+      const list = fields.filter((f) => byField.has(f));
+      list.forEach((f) => placed.add(f));
+      if (!list.length) return;
+      html += `<div class="field-group">${escapeHtml(name)}</div>`;
+      list.forEach((f) => {
+        const r = byField.get(f);
+        const lost = r.kind === "changed" || r.kind === "cleared";
+        html += `<div class="tp-row ${r.kind}${lost ? " lost" : ""}" title="${escapeHtml(TP_LABEL[r.kind])}">
+            <span class="field-name">${lost ? '<span class="tp-icon">⚠</span> ' : r.kind === "added" ? '<span class="tp-icon add">+</span> ' : ""}${escapeHtml(f)}${r.note ? `<span class="tp-note muted">${escapeHtml(r.note)}</span>` : ""}</span>
+            <span class="tp-before">${cell(f, r.before, r.beforeVaries)}</span>
+            <span class="tp-after">${cell(f, r.after, r.afterVaries)}</span>
+          </div>`;
+      });
+    };
+    EXPLORER_GROUPS.forEach(([name, fields]) => group(name, fields));
+    group("Other", [...byField.keys()].filter((f) => !placed.has(f)).sort());
+    if (!visible.length) html += `<div class="muted explorer-note">${all.some((r) => r.kind !== "same") ? "No fields match." : "No tag changes."}</div>`;
+
+    // Raw tags beets doesn't write: they stay in the file.
+    const other = track ? track.other_tags : (() => {
+      const keys = new Map();
+      data.tracks.forEach((t) => Object.keys(t.other_tags || {}).forEach((k) => keys.set(k, (keys.get(k) || 0) + 1)));
+      return Object.fromEntries([...keys].map(([k, c]) => [k, c === data.tracks.length ? "" : `on ${c} of ${data.tracks.length} files`]));
+    })();
+    const otherKeys = Object.keys(other || {}).filter((k) => !state.filter || k.toLowerCase().includes(state.filter));
+    if (otherKeys.length) {
+      html += `<div class="field-group">Kept in the file (beets doesn't write these tags)</div>`;
+      otherKeys.forEach((k) => {
+        const v = other[k];
+        html += `<div class="field-row"><span class="field-name">${escapeHtml(k)}</span><span class="field-val-wrap muted">${escapeHtml(Array.isArray(v) ? v.join(", ") : String(v ?? ""))}</span></div>`;
+      });
+    }
+    if (data.set_fields && data.set_fields.length) {
+      html += `<div class="explorer-note muted">Also set in beets (stored in the library, not written to files): ${data.set_fields.map((s) => `<span class="mono">${escapeHtml(s.field)} = ${escapeHtml(s.value)}</span>`).join(", ")}.</div>`;
+    }
+    html += `<div class="explorer-note muted">Replaced and removed values aren't gone for good: beets keeps each file's original tags (Library → album → "Original file"), and with copy mode the inbox file is untouched until you confirm the import.</div>`;
+    bodyEl.innerHTML = html;
+    explorerWireValues(bodyEl);
+  }
+
   renderTree();
   renderPanel();
 }

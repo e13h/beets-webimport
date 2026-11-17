@@ -32,6 +32,10 @@ class PendingReview:
     kind: str  # "match" | "item" | "duplicate"
     path: str
     payload: dict  # serialized candidates / duplicate info for the UI
+    # The live beets ImportTask (server-side only, never serialized): the
+    # worker is blocked waiting for this review's decision, so it's safe to
+    # read for previews (tagpreview.py).
+    task: Any = None
     decision_queue: "queue.Queue" = field(default_factory=lambda: queue.Queue(maxsize=1))
 
 
@@ -62,9 +66,9 @@ class ReviewManager:
         self._pending: dict[str, PendingReview] = {}
         self._lock = threading.Lock()
 
-    def register(self, kind: str, path: str, payload: dict) -> PendingReview:
+    def register(self, kind: str, path: str, payload: dict, task=None) -> PendingReview:
         task_id = uuid.uuid4().hex
-        pr = PendingReview(task_id=task_id, kind=kind, path=path, payload=payload)
+        pr = PendingReview(task_id=task_id, kind=kind, path=path, payload=payload, task=task)
         with self._lock:
             self._pending[task_id] = pr
         return pr

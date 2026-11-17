@@ -489,3 +489,41 @@ button.small { padding: 2px 8px; font-size: 12px; align-self: flex-start; margin
   display: flex; flex-direction: column; gap: 6px;
 }
 .matched-via a { color: var(--accent); }
+
+/* -- Tag preview (import review) ----------------------------------------- */
+.tag-preview-section { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 12px; }
+.tag-preview-section .tp-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.tag-preview-section h4 { margin: 0; }
+.tp-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.tp-chip {
+  font-size: 12px; padding: 2px 8px; border-radius: 999px;
+  background: rgba(154,159,168,.15); color: var(--muted);
+}
+.tp-chip.lost { background: rgba(232,176,74,.18); color: #f0c674; }
+.tp-chip.added { background: rgba(76,175,125,.15); color: #8fd4b0; }
+.tag-preview .explorer { margin-top: 8px; }
+.tp-row {
+  display: grid; grid-template-columns: minmax(110px, 26%) 1fr 1fr; gap: 10px;
+  padding: 4px 6px; border-radius: 6px; font-size: 13px; align-items: start;
+  border-left: 3px solid transparent;
+}
+.tp-row > span { min-width: 0; word-break: break-word; }
+.tp-row.tp-header {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted);
+  position: sticky; top: 40px; background: var(--panel); z-index: 1;
+}
+.tp-row.added .tp-after { color: #8fd4b0; }
+.tp-row.lost { background: rgba(232,176,74,.10); border-left-color: #e8b04a; }
+.tp-row.lost .tp-before { color: #f0c674; text-decoration: line-through; text-decoration-color: rgba(240,198,116,.6); }
+.tp-row.lost .tp-before a { color: inherit; }
+.tp-row.same { opacity: .6; }
+.tp-icon { color: #e8b04a; }
+.tp-icon.add { color: #8fd4b0; }
+.tp-note { display: block; font-family: inherit; font-size: 11px; }
+.tp-varies { font-style: italic; }
+@media (max-width: 699px) {
+  .tp-row { grid-template-columns: 1fr 1fr; }
+  .tp-row .field-name { grid-column: 1 / -1; }
+  .tp-row.tp-header .tp-h-field, .tp-row.tp-header > span:first-child { display: none; }
+}
+.tp-row.lost .tp-before .tp-varies { text-decoration: none; color: var(--muted); }

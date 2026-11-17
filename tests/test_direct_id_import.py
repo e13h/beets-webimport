@@ -146,7 +146,7 @@ def test_choose_match_preset_good_id_single_candidate_review(lib, tmp_path, monk
     registered = {}
     real_register = rm.register
 
-    def spy_register(kind, path, payload):
+    def spy_register(kind, path, payload, task=None):
         registered.update(payload, kind=kind)
         pr = real_register(kind, path, payload)
         rm.submit_decision(pr.task_id, {"action": "skip"})
@@ -212,7 +212,7 @@ def test_choose_match_preset_id_empty_candidates_registers_review(
     registered = {}
     real_register = rm.register
 
-    def spy_register(kind, path, payload):
+    def spy_register(kind, path, payload, task=None):
         registered.update(payload)
         pr = real_register(kind, path, payload)
         # Unblock the session thread immediately: the test observes what

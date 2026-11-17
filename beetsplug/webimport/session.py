@@ -168,7 +168,7 @@ class WebImportSession(importer.ImportSession):
             payload["matched_via"] = matched_via
         if purchase_info:
             payload["purchase"] = purchase_info
-        pr = self.review_manager.register("match", payload["path"], payload)
+        pr = self.review_manager.register("match", payload["path"], payload, task=task)
         decision = self.review_manager.wait_for_decision(pr.task_id)
 
         return self._apply_decision_album(task, decision)

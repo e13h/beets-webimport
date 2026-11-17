@@ -472,6 +472,42 @@ async function loadInbox() {
   });
 }
 
+// "Tags after import": the files' tags now vs. after importing with the
+// focused candidate (renderTagPreview in explorer.js). One request per
+// candidate, cached for the life of the modal.
+function createTagPreviewSection(host, pr) {
+  host.className = "tag-preview-section";
+  host.innerHTML = `<div class="tp-head"><h4>Tags after import</h4><span class="tp-chips"></span></div><div class="tp-body"></div>`;
+  const chipsEl = host.querySelector(".tp-chips");
+  const bodyEl = host.querySelector(".tp-body");
+  const cache = new Map();
+  let current = null;
+  async function focusCandidate(c) {
+    current = c;
+    if (!c) {
+      chipsEl.innerHTML = "";
+      bodyEl.innerHTML = '<div class="muted">Select a candidate to preview its tags.</div>';
+      return;
+    }
+    if (!cache.has(c.index)) {
+      cache.set(c.index, api(`/api/review/${pr.task_id}/tag_preview?index=${c.index}`).catch((err) => ({ error: err.message })));
+      chipsEl.innerHTML = "";
+      bodyEl.innerHTML = '<div class="muted"><span class="spinner"></span> Comparing tags…</div>';
+    }
+    const data = await cache.get(c.index);
+    if (current !== c) return;
+    if (data.error) {
+      cache.delete(c.index);
+      chipsEl.innerHTML = "";
+      bodyEl.innerHTML = `<div class="muted">Couldn't preview tags: ${escapeHtml(data.error)}</div>`;
+      return;
+    }
+    chipsEl.innerHTML = tagPreviewChips(data);
+    renderTagPreview(bodyEl, data);
+  }
+  return { focusCandidate };
+}
+
 async function openReview(pr) {
   if (pr.kind === "duplicate") return openDuplicateReview(pr);
 
@@ -491,7 +527,10 @@ async function openReview(pr) {
   container.appendChild(artHost);
   const list = document.createElement("div");
   container.appendChild(list);
+  const tagHost = document.createElement("div");
+  container.appendChild(tagHost);
   const artChoice = createArtChoiceCard(artHost, pr);
+  const tagPreview = createTagPreviewSection(tagHost, pr);
 
   let focusedIndex = null;
 
@@ -513,6 +552,7 @@ async function openReview(pr) {
           focusedIndex = i;
           renderCandidates();
           artChoice.focusCandidate(c);
+          tagPreview.focusCandidate(c);
         }
       });
       div.querySelector("[data-select]").addEventListener("click", async (e) => {
@@ -537,6 +577,7 @@ async function openReview(pr) {
     renderCandidates();
   }
   artChoice.focusCandidate(pr.payload.candidates[0] || null);
+  tagPreview.focusCandidate(pr.payload.candidates[0] || null);
 
   // Matched automatically through the album's Apple Music link.
   const via = pr.payload.matched_via;
@@ -654,6 +695,7 @@ async function openReview(pr) {
 
   container.appendChild(idRow);
   var backdrop = openModal(container);
+  container.parentElement.classList.add("modal-wide");
 }
 
 // Album art for an import. Shows what the files have now ("keep") and the

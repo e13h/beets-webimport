@@ -11,7 +11,7 @@ from beets import config as beets_config
 from beets import context as beets_context
 from beets.util import syspath
 
-from . import artchoice, coverart, itunes, library, reimport, snapshot, tags
+from . import artchoice, coverart, itunes, library, reimport, snapshot, tagpreview, tags
 from .grace import GracePeriodManager
 from .queue import InboxWorkerPool, ReviewManager
 from .session import WebImportSession
@@ -357,6 +357,22 @@ def create_app(lib, wi_config, plugin):
                     return jsonify({"ok": False, "error": f"Couldn't use the chosen art: {exc}"}), 502
         ok = review_manager.submit_decision(task_id, decision)
         return jsonify({"ok": ok})
+
+    @app.get("/api/review/<task_id>/tag_preview")
+    @_safe
+    def api_review_tag_preview(task_id):
+        """What importing with candidate `index` would do to each file's
+        tags (computed on copies; nothing is written)."""
+        pr = review_manager.get(task_id)
+        if pr is None or pr.task is None or pr.kind != "match":
+            return jsonify({"error": "no such pending album review"}), 404
+        try:
+            index = int(request.args.get("index", "0"))
+            if not 0 <= index < len(pr.task.candidates):
+                raise ValueError
+        except ValueError:
+            return jsonify({"error": "bad candidate index"}), 400
+        return jsonify(tagpreview.preview(pr.task, index))
 
     @app.get("/api/inbox/art_options")
     @_safe

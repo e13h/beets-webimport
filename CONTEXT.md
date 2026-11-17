@@ -87,6 +87,13 @@ iTunes Store art (iTunes purchases), or an image file in the inbox folder.
 webimport applies it as the album's art; embedart embeds it (ADR-0013).
 _Avoid_: source art, resolved art (the retired dual preview)
 
+**Tag Preview**:
+In candidate review, each file's tags now vs. after importing with the
+focused candidate, computed by running beets' apply step on copies
+(`tagpreview.py`). Fields are added, replaced, removed, or unchanged;
+replaced and removed are where the imported file loses its current value.
+Tags beets doesn't write (store IDs, iTunes atoms) are listed as kept.
+
 **Apply Lock**:
 The single global mutual-exclusion lock serializing the db-write/move
 ("apply") step across concurrently-reviewed Import Tasks. Guarantees

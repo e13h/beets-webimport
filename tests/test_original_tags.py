@@ -143,3 +143,11 @@ def test_snapshot_is_not_a_beets_event_listener(lib, tmp_path):
     create_app(lib, cfg, plugin)
     events = [c.args[0] for c in plugin.register_listener.call_args_list]
     assert "import_task_start" not in events
+
+
+def test_id3_language_suffixed_frames_count_as_mapped():
+    mapped = {"comm", "txxx:musicbrainz album id"}
+    assert snapshot._is_mapped("COMM::eng", mapped)           # beets' comments field
+    assert not snapshot._is_mapped("COMM:ID3v1 Comment:eng", mapped)
+    assert snapshot._is_mapped("TXXX:MusicBrainz Album Id", mapped)
+    assert not snapshot._is_mapped("TPE3", mapped)

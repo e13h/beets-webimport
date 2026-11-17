@@ -78,6 +78,20 @@ def _mapped_raw_keys(mf) -> set[str]:
     return keys
 
 
+def _is_mapped(raw_key: str, mapped: set[str]) -> bool:
+    """Whether beets manages this raw key. ID3 frames with a description
+    carry a language suffix: the comment beets writes is `COMM::eng`
+    (frame COMM, empty description), matched by the style key `COMM`."""
+    k = raw_key.lower()
+    if k in mapped:
+        return True
+    parts = k.split(":")
+    if len(parts) == 3:  # FRAME:description:lang
+        frame, desc, _lang = parts
+        return (f"{frame}:{desc}" in mapped) if desc else frame in mapped
+    return False
+
+
 def _jsonish(value):
     if isinstance(value, bytes):
         value = value.decode("utf-8", errors="replace")
@@ -117,7 +131,7 @@ def capture(item) -> dict:
         raw = mf.mgfile.tags or {}
         for key in sorted(raw.keys()):
             k = str(key)
-            if _excluded_raw_key(k) or k.lower() in mapped:
+            if _excluded_raw_key(k) or _is_mapped(k, mapped):
                 continue
             other[k] = _jsonish(raw[key])
     except Exception:  # noqa: BLE001 -- a raw-tag read failure shouldn't block import
