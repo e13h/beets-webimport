@@ -17,7 +17,7 @@ that the targeted candidate still passes through review-modal approval.
 - `docs/adr/0010-inbox-already-imported-detection-via-marker-file.md`
 - `docs/adr/0005-reimport-via-temporary-config-mutation.md`
 - `docs/playbooks/07-reimport-end-to-end.md` (full Re-import modal)
-- Target test release (Mulan) MBID: `a5483fb3-634b-4254-a966-de33cefd1f17`
+- Target test release (Mulan) MBID: `4e929666-952f-473c-baf2-97c9ca6bfbbe`
 
 ---
 
@@ -44,7 +44,7 @@ scripts/dev-server.sh
 
 1. Navigate to `http://localhost:8338`.
 2. On the Mulan card, click "Import with ID…" (`button[data-id-toggle]`),
-   paste `a5483fb3-634b-4254-a966-de33cefd1f17` into
+   paste `4e929666-952f-473c-baf2-97c9ca6bfbbe` into
    `input[data-id-input]`, click `button[data-id-go]`.
 3. Wait for "Awaiting candidate review", click Review
    (`#pending-reviews .card button[data-review]`), click Select
@@ -71,7 +71,7 @@ scripts/dev-server.sh
 {
   "element": "Direct ID input on imported Mulan card",
   "target": "#inbox-dirs .card.imported input[data-id-input]",
-  "text": "a5483fb3-634b-4254-a966-de33cefd1f17"
+  "text": "4e929666-952f-473c-baf2-97c9ca6bfbbe"
 }
 ```
 
@@ -164,7 +164,7 @@ EOF
 {
   "element": "Direct ID input on imported Mulan card",
   "target": "#inbox-dirs .card.imported input[data-id-input]",
-  "text": "a5483fb3-634b-4254-a966-de33cefd1f17"
+  "text": "4e929666-952f-473c-baf2-97c9ca6bfbbe"
 }
 ```
 

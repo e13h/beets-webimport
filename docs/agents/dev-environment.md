@@ -83,7 +83,19 @@ Network hosts needed for playbooks that hit MusicBrainz/CAA (for terminal sandbo
 `itunes.apple.com`, `*.mzstatic.com`.
 
 Target test release (Mulan soundtrack) MBID:
-`a5483fb3-634b-4254-a966-de33cefd1f17`.
+`4e929666-952f-473c-baf2-97c9ca6bfbbe`, the 2020 Digital Media release
+whose Apple Music links point at the test files' iTunes album
+(`plID` 1440662312). (Older notes and tickets used `a5483fb3-…`, the 1998
+US CD release, which has no Apple Music links.)
+
+**The test Mulan files are an iTunes purchase, so a review started without
+an ID is matched automatically** through the album's Apple Music link
+(`webimport.apple_music_match`, on by default): one candidate, the
+digital release, under a "Matched via Apple Music link" banner. A pasted
+ID still overrides it. To exercise the broad search, click "Search
+normally instead" (`[data-search-normally]`), or set
+`webimport: apple_music_match: no` in `.config/local.yaml` for the run
+(but don't commit that: the parity test allows only path keys there).
 
 ## Timing/race facts that bite in test drivers (not plugin bugs)
 

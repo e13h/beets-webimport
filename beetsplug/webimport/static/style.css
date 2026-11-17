@@ -495,3 +495,11 @@ button:disabled { opacity: .5; cursor: default; }
   content: "Replaced by iTunes art"; position: absolute; top: 4px; left: 4px; z-index: 1;
   background: rgba(0,0,0,.75); color: #fff; font-size: 11px; padding: 2px 6px; border-radius: 6px;
 }
+
+/* Review matched automatically via the album's Apple Music link */
+.matched-via {
+  border: 1px solid rgba(80, 200, 120, .45); background: rgba(80, 200, 120, .08);
+  border-radius: 10px; padding: 8px 10px; margin: 0 0 12px; font-size: 13px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.matched-via a { color: var(--accent); }

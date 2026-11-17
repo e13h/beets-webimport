@@ -26,6 +26,7 @@ def inbox_app(lib, tmp_path):
         "tag_fields": MagicMock(get=lambda typ: ["mood"]),
         "inbox_dir": MagicMock(get=lambda typ: str(inbox_dir)),
         "tag_store_path": MagicMock(get=lambda typ: str(tmp_path / "tags.json")),
+        "apple_music_match": MagicMock(get=lambda typ: True),
     }
     app = create_app(lib, cfg, plugin_mock)
     return app, app.test_client(), str(folder)
@@ -40,6 +41,7 @@ def capture_session(monkeypatch):
 
     def fake_run(self):
         captured["preset_search_id"] = self.preset_search_id
+        captured["matched_via"] = self.matched_via
         # Simulate the real choose_match behavior of consuming the preset
         # before registering review, then register a review task so the
         # endpoint's success can be observed without network.
@@ -237,3 +239,37 @@ def test_choose_match_preset_id_empty_candidates_registers_review(
     # ...and it was registered as a reviewable task, not aborted:
     assert len(rm.list_pending()) == 0  # consumed by the auto-skip decision
     assert "attempted_search_id" in registered
+
+
+def test_inbox_start_uses_apple_music_match(inbox_app, capture_session, monkeypatch):
+    from beetsplug.webimport import itunes
+
+    via = {"source": "apple_music", "collection_id": 1, "release_ids": ["r1", "r2"]}
+    monkeypatch.setattr(itunes, "musicbrainz_match_for_dir", lambda folder: via)
+    app, client, folder = inbox_app
+    client.post("/api/inbox/start", json={"paths": [folder]})
+    _wait(capture_session)
+    assert capture_session["preset_search_id"] == ["r1", "r2"]
+    assert capture_session["matched_via"] == via
+
+
+def test_explicit_id_wins_over_apple_music_match(inbox_app, capture_session, monkeypatch):
+    from beetsplug.webimport import itunes
+
+    monkeypatch.setattr(itunes, "musicbrainz_match_for_dir", lambda folder: pytest.fail("not consulted"))
+    app, client, folder = inbox_app
+    client.post("/api/inbox/start", json={"paths": [folder], "search_ids": {folder: "mine"}})
+    _wait(capture_session)
+    assert capture_session["preset_search_id"] == "mine"
+    assert capture_session["matched_via"] is None
+
+
+def test_no_linked_release_runs_normal_search(inbox_app, capture_session, monkeypatch):
+    from beetsplug.webimport import itunes
+
+    monkeypatch.setattr(itunes, "musicbrainz_match_for_dir",
+                        lambda folder: {"source": "apple_music", "collection_id": 1, "release_ids": []})
+    app, client, folder = inbox_app
+    client.post("/api/inbox/start", json={"paths": [folder]})
+    _wait(capture_session)
+    assert capture_session["preset_search_id"] is None

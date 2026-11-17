@@ -76,7 +76,7 @@ Import the initial Mulan test album into the disposable library to establish a b
    - Playwright tool call: `browser_wait_for(text="Awaiting candidate review")`
 3. **Review & Force Target MusicBrainz ID:**
    - Playwright tool call: `browser_click(target="#pending-reviews .card button[data-review]", element="Review button for pending Mulan import")`
-   - Playwright tool call: `browser_type(target="div#modal-root input[data-mbid]", text="a5483fb3-634b-4254-a966-de33cefd1f17")`
+   - Playwright tool call: `browser_type(target="div#modal-root input[data-mbid]", text="4e929666-952f-473c-baf2-97c9ca6bfbbe")`
    - Playwright tool call: `browser_click(target="div#modal-root button[data-use-id]", element="Use ID button")`
    - Playwright tool call: `browser_wait_for(text="Jerry Goldsmith, Matthew Wilder & David Zippel")`
 4. **Apply Candidate 0:**
@@ -148,7 +148,7 @@ Import the initial Mulan test album into the disposable library to establish a b
    // 1. Enter target MusicBrainz ID (or URL)
    browser_type({
      "target": "div#modal-root input[data-mbid]",
-     "text": "a5483fb3-634b-4254-a966-de33cefd1f17",
+     "text": "4e929666-952f-473c-baf2-97c9ca6bfbbe",
      "element": "MusicBrainz ID input in reimport modal"
    })
    ```
@@ -184,7 +184,7 @@ Import the initial Mulan test album into the disposable library to establish a b
      ```json
      {
        "album_ids": [1],
-       "search_id": "a5483fb3-634b-4254-a966-de33cefd1f17",
+       "search_id": "4e929666-952f-473c-baf2-97c9ca6bfbbe",
        "from_scratch": true,
        "set_fields": { "navidrome_library": "kids" }
      }

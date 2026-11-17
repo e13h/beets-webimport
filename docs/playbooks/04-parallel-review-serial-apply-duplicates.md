@@ -39,7 +39,7 @@ The playbook queries live MusicBrainz and Cover Art Archive endpoints for metada
 - `archive.org`, `*.archive.org`
 - `itunes.apple.com`, `*.mzstatic.com`
 
-**Target Release MBID:** `a5483fb3-634b-4254-a966-de33cefd1f17`
+**Target Release MBID:** `4e929666-952f-473c-baf2-97c9ca6bfbbe`
 
 ---
 
@@ -102,14 +102,14 @@ The playbook queries live MusicBrainz and Cover Art Archive endpoints for metada
 
 ### Step 4: Review and Apply Album 1 to Target Release
 
-1. **User Action:** Open candidate review for the first album, override candidate lookup with the target release MBID (`a5483fb3-634b-4254-a966-de33cefd1f17`), and apply the match.
+1. **User Action:** Open candidate review for the first album, override candidate lookup with the target release MBID (`4e929666-952f-473c-baf2-97c9ca6bfbbe`), and apply the match.
 2. **Playwright MCP Calls:**
    ```json
    // Open candidate review modal for the first album
    browser_click(target="#pending-reviews .card:first-child button[data-review]")
 
    // In the review modal, enter the target MBID
-   browser_type(target=".modal input[data-mbid]", text="a5483fb3-634b-4254-a966-de33cefd1f17")
+   browser_type(target=".modal input[data-mbid]", text="4e929666-952f-473c-baf2-97c9ca6bfbbe")
    browser_click(target=".modal button[data-use-id]")
 
    // Wait for the re-review task to appear with resolved candidates
@@ -150,14 +150,14 @@ The playbook queries live MusicBrainz and Cover Art Archive endpoints for metada
 
 ### Step 6: Review and Resolve Album 2 (Trigger Duplicate Prompt)
 
-1. **User Action:** Review the second album (`Mulan_dup`), set the same target release MBID (`a5483fb3-634b-4254-a966-de33cefd1f17`), and select the candidate to trigger beets' duplicate detection pipeline.
+1. **User Action:** Review the second album (`Mulan_dup`), set the same target release MBID (`4e929666-952f-473c-baf2-97c9ca6bfbbe`), and select the candidate to trigger beets' duplicate detection pipeline.
 2. **Playwright MCP Calls:**
    ```json
    // Open review for the remaining Mulan_dup card
    browser_click(target="#pending-reviews .card button[data-review]")
 
    // Set the target MBID
-   browser_type(target=".modal input[data-mbid]", text="a5483fb3-634b-4254-a966-de33cefd1f17")
+   browser_type(target=".modal input[data-mbid]", text="4e929666-952f-473c-baf2-97c9ca6bfbbe")
    browser_click(target=".modal button[data-use-id]")
 
    // Wait for re-review task to appear

@@ -530,6 +530,32 @@ async function openReview(pr) {
     loadArtCompare($(".candidate", list), pr, pr.payload.candidates[0]);
   }
 
+  // Matched automatically through the album's Apple Music link.
+  const via = pr.payload.matched_via;
+  if (via && via.source === "apple_music") {
+    const n = via.release_ids.length;
+    const banner = document.createElement("div");
+    banner.className = "matched-via";
+    banner.innerHTML = via.fallback
+      ? `<div>Found ${n === 1 ? "a MusicBrainz release" : `${n} MusicBrainz releases`} linked to this album's Apple Music listing,
+           but couldn't load ${n === 1 ? "it" : "them"}, so these are normal search results.</div>`
+      : `<div>✓ Matched via Apple Music link: ${n === 1 ? "the MusicBrainz release" : `${n} MusicBrainz releases`}
+           linked to iTunes album <a href="https://music.apple.com/album/${via.collection_id}" target="_blank" rel="noopener">${via.collection_id}</a>.</div>
+         <div class="row"><button class="secondary" data-search-normally>Search normally instead</button></div>`;
+    banner.querySelector("[data-search-normally]")?.addEventListener("click", async () => {
+      const toast = createProgressToast("Running normal candidate search…");
+      try {
+        await decide(pr.task_id, { action: "search_id", search_id: "" });
+        backdrop.close();
+        loadInbox();
+        toast.done("Candidate search started.");
+      } catch (err) {
+        toast.error(`Search failed: ${err.message}`);
+      }
+    });
+    container.insertBefore(banner, list);
+  }
+
   // Direct ID Import failure state: a pre-specified ID yielded zero
   // candidates (bad ID, 404, network failure). Surface it for
   // correction instead of showing an empty candidate list.

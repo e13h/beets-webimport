@@ -135,6 +135,13 @@ def create_app(lib, wi_config, plugin):
         )
         if search_id:
             session.preset_search_id = search_id
+        elif wi_config["apple_music_match"].get(bool):
+            # iTunes purchase with a MusicBrainz release linked to its
+            # Apple Music listing: search only the linked release(s).
+            match = itunes.musicbrainz_match_for_dir(Path(path))
+            if match and match["release_ids"]:
+                session.preset_search_id = list(match["release_ids"])
+                session.matched_via = match
         try:
             session.run()
             with _import_ctx_lock:

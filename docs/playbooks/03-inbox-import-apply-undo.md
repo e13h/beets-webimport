@@ -9,7 +9,7 @@ This playbook provides end-to-end verification for the import, apply, and undo w
 ### Scenario
 1. An album folder (`Mulan (Original Motion Picture Soundtrack)`) exists in `.inbox/`.
 2. The user initiates import via the web UI and inspects initial match candidates in the review modal.
-3. The user overrides automatic matching by providing a specific MusicBrainz Release ID (`a5483fb3-634b-4254-a966-de33cefd1f17`) through the UI's search-by-ID input (`[data-mbid]`, `[data-use-id]`).
+3. The user overrides automatic matching (for these iTunes test files, the release found through the album's Apple Music link) by providing a specific MusicBrainz Release ID (`4e929666-952f-473c-baf2-97c9ca6bfbbe`) through the UI's search-by-ID input (`[data-mbid]`, `[data-use-id]`).
 4. The candidate list updates with the target release, and the user selects and applies the match (`[data-select]`).
 5. Beets imports the files in copy mode (`copy: yes`), writes metadata tags, sets `navidrome_library: unassigned` (`set_fields`), fetches and embeds cover art, and registers a Grace Period undo entry.
 6. The user views the undo record in the UI's Undo tab (`#tabs button[data-tab="undo"]`).
@@ -17,7 +17,7 @@ This playbook provides end-to-end verification for the import, apply, and undo w
 
 ### Verifications
 1. **Inbox Review Initiation**: Clicking "Start import" (`[data-start]`) queues the inbox folder and produces an "Awaiting candidate review" card with a "Review" button (`[data-review]`) under `#pending-reviews`.
-2. **Search-by-ID Override**: Entering target MBID `a5483fb3-634b-4254-a966-de33cefd1f17` into `[data-mbid]` and clicking `[data-use-id]` queries MusicBrainz and refreshes the candidate list with the forced release.
+2. **Search-by-ID Override**: Entering target MBID `4e929666-952f-473c-baf2-97c9ca6bfbbe` into `[data-mbid]` and clicking `[data-use-id]` queries MusicBrainz and refreshes the candidate list with the forced release.
 3. **Apply & File Placement**: Selecting the forced candidate (`[data-select]`) imports audio files under `.library/` according to beets' directory structure templates, assigns `navidrome_library=unassigned`, and fetches and embeds cover art (art file removed after embedding).
 4. **Grace Period Registration**: The applied import is registered in the in-memory `GracePeriodManager` and visible in the web UI under `#undo-list` with an active countdown timer.
 5. **ID-Scoped Undo**: Clicking `[data-undo]` executes `remove(delete=True)` on the exact captured IDs, deleting the library files and SQLite DB entries while leaving the original files in `.inbox/` untouched.
@@ -148,14 +148,14 @@ Click the "Review" button to open the candidate decision modal.
 ---
 
 ### Step 4: Force Target Release via Search-by-ID Override
-Type the target MusicBrainz release ID (`a5483fb3-634b-4254-a966-de33cefd1f17`) into `input[data-mbid]` and click "Use ID" (`button[data-use-id]`).
+Type the target MusicBrainz release ID (`4e929666-952f-473c-baf2-97c9ca6bfbbe`) into `input[data-mbid]` and click "Use ID" (`button[data-use-id]`).
 
 ```json
 // Tool Call: browser_type
 {
   "element": "MusicBrainz ID input field",
   "target": ".modal input[data-mbid]",
-  "text": "a5483fb3-634b-4254-a966-de33cefd1f17"
+  "text": "4e929666-952f-473c-baf2-97c9ca6bfbbe"
 }
 ```
 
@@ -184,7 +184,7 @@ Wait for the worker thread to query MusicBrainz for the specific MBID and re-pop
 
 **Expected Observable Outcome:**
 - The previous review modal closes (`.modal-backdrop` is removed).
-- The task is re-queued with the new candidate list for release `a5483fb3-634b-4254-a966-de33cefd1f17`.
+- The task is re-queued with the new candidate list for release `4e929666-952f-473c-baf2-97c9ca6bfbbe`.
 - A `.card` with "Awaiting candidate review" and `button[data-review]` is visible under `#pending-reviews`.
 
 ---

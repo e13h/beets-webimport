@@ -19,7 +19,7 @@ targeted lookup registers a review task with an empty candidate list and
 
 - `docs/adr/0009-playwright-against-real-server-over-test-client-scripts.md`
 - `docs/playbooks/03-inbox-import-apply-undo.md` (baseline import flow)
-- Target test release (Mulan) MBID: `a5483fb3-634b-4254-a966-de33cefd1f17`
+- Target test release (Mulan) MBID: `4e929666-952f-473c-baf2-97c9ca6bfbbe`
 
 ---
 
@@ -102,7 +102,7 @@ Click the toggle:
 {
   "element": "Direct ID input on Mulan card",
   "target": "#inbox-dirs .card input[data-id-input]",
-  "text": "a5483fb3-634b-4254-a966-de33cefd1f17"
+  "text": "4e929666-952f-473c-baf2-97c9ca6bfbbe"
 }
 ```
 
@@ -137,8 +137,9 @@ a few seconds, well under the broad-search wait):
 
 **Expected Observable Outcome:**
 - Review modal shows **exactly one** candidate: `Jerry Goldsmith,
-  Matthew Wilder & David Zippel – Mulan (Original Motion Picture
-  Soundtrack) (1998)`, distance `0.00`.
+  Matthew Wilder & David Zippel – Mulan: An Original Walt Disney
+  Records Soundtrack (2020)` (distance around `0.5`: the test files'
+  iTunes tags differ from MusicBrainz's titles and artists).
 - No error banner is shown.
 - The modal's standard actions remain: "Use ID", "Use as-is", "Skip",
   and the candidate's "Select" — approval still goes through the
@@ -236,7 +237,7 @@ expand the toggle, and submit a bogus ID:
 {
   "element": "Retry ID input in error banner",
   "target": ".modal input[data-retry-id]",
-  "text": "a5483fb3-634b-4254-a966-de33cefd1f17"
+  "text": "4e929666-952f-473c-baf2-97c9ca6bfbbe"
 }
 ```
 

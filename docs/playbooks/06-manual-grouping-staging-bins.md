@@ -146,7 +146,7 @@ Wait for both staging bins to be processed by the worker pool and appear in the 
 ---
 
 ### Step 4: Candidate Review and Apply for Bin 0 (Multi-track Album)
-Open review for `bin_0`, inspect candidates (or override with target MBID `a5483fb3-634b-4254-a966-de33cefd1f17`), and apply.
+Open review for `bin_0`, inspect candidates (or override with target MBID `4e929666-952f-473c-baf2-97c9ca6bfbbe`), and apply.
 
 ```json
 // Tool Call: browser_click

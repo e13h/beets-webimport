@@ -73,7 +73,14 @@ class WebImportSession(importer.ImportSession):
         # Consumed once by choose_match, if set by reimport.py, to restrict
         # the very first candidate search to a specific backend ID
         # (equivalent of `-S <id>`) before presenting anything for review.
-        self.preset_search_id: str | None = None
+        # A list restricts the search to several IDs at once (releases
+        # linked from an Apple Music listing).
+        self.preset_search_id: str | list[str] | None = None
+        # Set with preset_search_id when the IDs came from an automatic
+        # match (itunes.musicbrainz_match_for_dir) rather than the user.
+        # Reported in the review payload; an empty result then falls back
+        # to a normal search instead of showing the "no candidate" error.
+        self.matched_via: dict | None = None
         # The ID the pipeline's own first lookup was restricted to (see
         # set_config); reported once by choose_match as attempted_search_id.
         self._initial_search_id: str | None = None
@@ -92,11 +99,14 @@ class WebImportSession(importer.ImportSession):
         session a private config: a snapshot of the global sources with
         the ID overlaid. The pipeline then does only the targeted lookup
         instead of a broad search followed by a second ID lookup."""
-        search_id = self.preset_search_id
-        if search_id and search_id.strip():
-            overlay = confuse.ConfigSource.of({"import": {"search_ids": [search_id]}})
+        search_ids = self.preset_search_id
+        if isinstance(search_ids, str):
+            search_ids = [search_ids]
+        search_ids = [s for s in (search_ids or []) if s and s.strip()]
+        if search_ids:
+            overlay = confuse.ConfigSource.of({"import": {"search_ids": search_ids}})
             config = confuse.RootView([overlay, *config.root().sources])["import"]
-            self._initial_search_id = search_id
+            self._initial_search_id = ", ".join(search_ids)
             self.preset_search_id = None
         super().set_config(config)
 
@@ -115,6 +125,14 @@ class WebImportSession(importer.ImportSession):
             attempted_search_id, self.preset_search_id = self.preset_search_id, None
             self._lookup_candidates(task, attempted_search_id)
 
+        matched_via, self.matched_via = self.matched_via, None
+        if matched_via is not None and attempted_search_id:
+            attempted_search_id = None  # automatic, not the user's ID
+            if not task.candidates:
+                # Linked release(s) couldn't be fetched: search normally.
+                matched_via = {**matched_via, "fallback": True}
+                self._lookup_candidates(task, "")
+
         candidates_payload = [
             _serialize_album_match(i, m) for i, m in enumerate(task.candidates)
         ]
@@ -129,6 +147,8 @@ class WebImportSession(importer.ImportSession):
             # can surface a failed/empty lookup for correction instead of
             # it looking like an ordinary zero-result search.
             payload["attempted_search_id"] = attempted_search_id
+        if matched_via is not None:
+            payload["matched_via"] = matched_via
         pr = self.review_manager.register("match", payload["path"], payload)
         decision = self.review_manager.wait_for_decision(pr.task_id)
 

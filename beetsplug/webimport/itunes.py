@@ -10,23 +10,38 @@ art: fetchart's `filesystem` source (first in the configured sources)
 searches the import's source folder and ranks names containing "cover"
 first. No beets config change is needed.
 
-Only catalog IDs and the country code are sent to Apple.
+It also finds the matching MusicBrainz release: MusicBrainz releases
+link to their Apple Music / iTunes listing, and its URL lookup returns the
+release for an exact link. Editors store links in several shapes
+(`music.apple.com/gb/album/<id>`, `itunes.apple.com/us/album/id<id>`, with
+or without the album-name slug), so one request asks for every likely
+shape at once.
+
+Only catalog IDs and the country code are sent to Apple, and only Apple
+links to MusicBrainz.
 """
 from __future__ import annotations
 
 import os
 import re
 import threading
+import time
 from pathlib import Path
+
+import logging
 
 import requests
 
 from .coverart import COVER_EXTS, image_info
 
+log = logging.getLogger("beets")
+
 LOOKUP_URL = "https://itunes.apple.com/lookup"
 MP4_EXTS = (".m4a", ".m4p", ".m4b", ".mp4")
 TIMEOUT = 10
 HEADERS = {"User-Agent": "beets-webimport/0.1"}
+# MusicBrainz asks clients to identify themselves with a contact URL.
+MB_HEADERS = {"User-Agent": "beets-webimport/0.1 ( https://github.com/beetbox/beets )"}
 COVER_NAME = "cover"
 BACKUP_SUFFIX = ".before-itunes"
 
@@ -39,13 +54,24 @@ STOREFRONTS = {
     143445: "at", 143459: "ch", 143446: "be", 143467: "in",
 }
 
+MB_URL_LOOKUP = "https://musicbrainz.org/ws/2/url"
+# MusicBrainz allows one request per second per client.
+MB_MIN_INTERVAL = 1.1
+# Extra stores beyond STOREFRONTS that MusicBrainz editors commonly link.
+EXTRA_STORE_COUNTRIES = ("pl", "pt", "tw", "hk", "sg", "za", "ar", "cl", "co", "ru", "tr")
+
 _cache: dict[int, tuple[dict, bytes | None]] = {}
 _cache_lock = threading.Lock()
+_mb_cache: dict[int, list[str]] = {}
+_mb_lock = threading.Lock()  # also serializes requests for the rate limit
+_mb_last_request = 0.0
 
 
 def clear_cache() -> None:
     with _cache_lock:
         _cache.clear()
+    with _mb_lock:
+        _mb_cache.clear()
 
 
 def _read_mp4_tags(path: Path) -> dict | None:
@@ -184,3 +210,85 @@ def save_cover(folder: Path) -> Path:
     tmp.write_bytes(data)
     os.replace(tmp, target)
     return target
+
+
+# -- MusicBrainz release by Apple Music link --------------------------------
+
+def apple_links(collection_id: int, extra: tuple[str, ...] = ()) -> list[str]:
+    """Every likely shape of the album's store link, in all common stores."""
+    countries = list(dict.fromkeys([*STOREFRONTS.values(), *EXTRA_STORE_COUNTRIES]))
+    links = [*extra]
+    for cc in countries:
+        links.append(f"https://music.apple.com/{cc}/album/{collection_id}")
+        links.append(f"https://itunes.apple.com/{cc}/album/id{collection_id}")
+    links.append(f"https://music.apple.com/album/{collection_id}")
+    links.append(f"https://itunes.apple.com/album/id{collection_id}")
+    return list(dict.fromkeys(links))
+
+
+def _slugged_links(store_url: str | None, collection_id: int) -> tuple[str, ...]:
+    """The iTunes lookup's own link (with the album-name slug), in its
+    music.apple.com and itunes.apple.com/…/id<id> shapes."""
+    if not store_url:
+        return ()
+    m = re.match(r"https://music\.apple\.com/([a-z]{2})/album/([^/]+)/(\d+)$", store_url)
+    if not m:
+        return (store_url,)
+    cc, slug, _ = m.groups()
+    return (store_url, f"https://itunes.apple.com/{cc}/album/{slug}/id{collection_id}")
+
+
+def _mb_lookup(links: list[str]) -> list[str]:
+    """Release MBIDs linked from any of `links` (one request). Raises on
+    network/server errors so callers don't cache a failure as "none"."""
+    global _mb_last_request
+    wait = _mb_last_request + MB_MIN_INTERVAL - time.monotonic()
+    if wait > 0:
+        time.sleep(wait)
+    try:
+        params = [("resource", link) for link in links] + [("inc", "release-rels"), ("fmt", "json")]
+        resp = requests.get(MB_URL_LOOKUP, params=params, timeout=TIMEOUT, headers=MB_HEADERS)
+    finally:
+        _mb_last_request = time.monotonic()
+    if resp.status_code == 404:
+        return []  # none of the links is known to MusicBrainz
+    resp.raise_for_status()
+    body = resp.json()
+    urls = body.get("urls") if "urls" in body else [body]
+    release_ids: list[str] = []
+    for url in urls or []:
+        for rel in url.get("relations", []):
+            rid = (rel.get("release") or {}).get("id")
+            if rid and rid not in release_ids:
+                release_ids.append(rid)
+    return release_ids
+
+
+def musicbrainz_release_ids(collection_id: int, store_url: str | None = None) -> list[str] | None:
+    """Releases MusicBrainz links to this iTunes album, or None if
+    MusicBrainz couldn't be reached. Cached per album."""
+    with _mb_lock:
+        if collection_id in _mb_cache:
+            return _mb_cache[collection_id]
+        try:
+            ids = _mb_lookup(apple_links(collection_id, _slugged_links(store_url, collection_id)))
+        except Exception:  # noqa: BLE001 -- fall back to a normal search
+            log.warning("webimport: MusicBrainz Apple link lookup failed", exc_info=True)
+            return None
+        _mb_cache[collection_id] = ids
+        return ids
+
+
+def musicbrainz_match_for_dir(folder: Path) -> dict | None:
+    """{"source": "apple_music", "collection_id", "release_ids"} for an
+    iTunes purchase folder, or None if it isn't one or MusicBrainz
+    couldn't be reached. `release_ids` is empty when no release links the
+    album."""
+    ids = detect_ids(folder)
+    if ids is None:
+        return None
+    info, _ = _fetch(ids["collection_id"], ids["country"])  # cached; gives the slugged link
+    release_ids = musicbrainz_release_ids(ids["collection_id"], info.get("store_url"))
+    if release_ids is None:
+        return None
+    return {"source": "apple_music", "collection_id": ids["collection_id"], "release_ids": release_ids}

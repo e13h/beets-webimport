@@ -96,7 +96,7 @@ graph TD
    {
      "element": "MusicBrainz ID input",
      "target": "div#modal-root input[data-mbid]",
-     "text": "a5483fb3-634b-4254-a966-de33cefd1f17"
+     "text": "4e929666-952f-473c-baf2-97c9ca6bfbbe"
    }
    ```
    ```json

@@ -31,6 +31,10 @@ class WebImportPlugin(BeetsPlugin):
                 "candidate_search_workers": 4,
                 "thumbnail_cache_dir": "",  # falls back to beets config dir
                 "debug": False,  # enables Flask debug mode + the reloader
+                # iTunes purchases: look up the MusicBrainz release linked
+                # to the album's Apple Music listing and use it as the
+                # Direct ID when no ID was given.
+                "apple_music_match": True,
             }
         )
 

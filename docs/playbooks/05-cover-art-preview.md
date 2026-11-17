@@ -41,7 +41,7 @@ This playbook performs real network lookups against MusicBrainz and the Cover Ar
 
 ## Target Release Under Test
 
-- **Target Release MBID:** `a5483fb3-634b-4254-a966-de33cefd1f17` (*Mulan: Original Motion Picture Soundtrack*)
+- **Target Release MBID:** `4e929666-952f-473c-baf2-97c9ca6bfbbe` (*Mulan: An Original Walt Disney Records Soundtrack*, the 2020 Digital Media release linked to the test files' iTunes album)
 - **Expected Outcome:** Both Source Art and Resolved Art resolve successfully to the CAA Front image, resulting in `match: true` and rendering a green `.art-badge.match` badge with text `"match"`.
 
 ---
@@ -166,7 +166,7 @@ Click an unfocused candidate to verify that art resolution triggers on-demand wh
 
 ### Step 5: Force the Target MusicBrainz Release ID
 
-Use the MBID override input in the review modal to target known release `a5483fb3-634b-4254-a966-de33cefd1f17`.
+Use the MBID override input in the review modal to target known release `4e929666-952f-473c-baf2-97c9ca6bfbbe`.
 
 - **Playwright MCP Calls:**
   ```json
@@ -175,7 +175,7 @@ Use the MBID override input in the review modal to target known release `a5483fb
     "parameters": {
       "element": "MusicBrainz ID input field",
       "target": ".modal input[data-mbid]",
-      "text": "a5483fb3-634b-4254-a966-de33cefd1f17"
+      "text": "4e929666-952f-473c-baf2-97c9ca6bfbbe"
     }
   }
   ```
@@ -235,7 +235,7 @@ Wait for the re-lookup to complete and reopen the candidate review modal.
   }
   ```
 - **Expected Observable UI State:**
-  - The candidate review modal is open for the target release (`a5483fb3-634b-4254-a966-de33cefd1f17`).
+  - The candidate review modal is open for the target release (`4e929666-952f-473c-baf2-97c9ca6bfbbe`).
   - Candidate 0 is focused (`div.candidate.focused`).
 
 ---
