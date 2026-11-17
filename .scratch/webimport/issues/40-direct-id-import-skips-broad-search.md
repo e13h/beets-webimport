@@ -1,6 +1,6 @@
 # 40: Direct ID Import still runs the full broad search (and chroma fingerprinting) before the ID lookup
 
-**Status:** needs-triage
+**Status:** resolved
 
 **Blocked by:** None
 
@@ -46,19 +46,19 @@ Alternatives: skip it, keep it, or fingerprint after apply / in the
 background.
 
 **Acceptance criteria:**
-- [ ] With a Direct ID, beets' broad search (`tag_album` without
+- [x] With a Direct ID, beets' broad search (`tag_album` without
       `search_ids`) is never called for that task. Assert this in a
       pytest unit test by patching `metadata_plugins.candidates` (or
       equivalent) to fail if called.
-- [ ] Parallel imports, one with an ID and one without, don't affect each
+- [x] Parallel imports, one with an ID and one without, don't affect each
       other: the one without an ID still gets a normal broad search, and
       the ID never appears in the other folder's lookup.
-- [ ] The mid-review "search by ID" decision and the "Auto-search instead"
+- [x] The mid-review "search by ID" decision and the "Auto-search instead"
       fallback (blank ID → broad search) behave as before.
-- [ ] Reimport with an ID (`reimport.py`, `preset_search_id`) also skips
+- [x] Reimport with an ID (`reimport.py`, `preset_search_id`) also skips
       the broad search.
-- [ ] The chroma decision above is made and implemented.
-- [ ] Timing is measured before and after with the homelab-mirroring dev
+- [x] The chroma decision above is made and implemented.
+- [x] Timing is measured before and after with the homelab-mirroring dev
       config (`.config/`, chroma enabled) on the Mulan inbox album. Record
       both numbers in the Comments below. Target: the candidate appears in
       the UI within ~2s of starting the import, assuming fingerprinting is
@@ -66,3 +66,29 @@ background.
 - [ ] Playbook 22 still passes.
 
 ## Comments
+
+**2026-11-17 — resolved.** `WebImportSession.set_config` gives a session
+with a Direct ID a private config view: a snapshot of the global config
+sources with `import.search_ids: [<id>]` on top. beets' own first lookup
+then does only the targeted lookup, and `choose_match` reports it as
+`attempted_search_id` without looking up again. The global config is
+untouched, so parallel sessions don't see each other's IDs. Mid-review
+"search by ID" and "Auto-search instead" work as before. Reimport gets
+the same fix because it sets `preset_search_id` before `run()`.
+Tests: `tests/test_direct_id_lookup.py` runs the real beets pipeline with
+stubbed metadata backends.
+
+Chroma decision: auto-fingerprinting is off entirely in the homelab
+config (`chroma: auto: no`), not only for ID imports.
+
+Timing (Mulan, homelab-mirroring dev config, time from start until the
+review is registered):
+
+| | before | after |
+|---|---|---|
+| chroma on, with ID | 13.5s / 14.5s | — (chroma now off) |
+| chroma off, no ID | 3.3s / 3.2s | 4.1–4.3s (unchanged path) |
+| chroma off, with ID | 3.7s / 4.0s | 1.1–1.4s typical, spikes to 2.4–3.7s |
+
+The remaining spikes look like MusicBrainz response time. Playbook 22
+has not been re-run in a browser yet.

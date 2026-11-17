@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import logging
 
+import confuse
+
 from beets import autotag, importer
 from beets.importer import Action, DuplicateAction
 from beets.util import displayable_path
@@ -72,6 +74,9 @@ class WebImportSession(importer.ImportSession):
         # the very first candidate search to a specific backend ID
         # (equivalent of `-S <id>`) before presenting anything for review.
         self.preset_search_id: str | None = None
+        # The ID the pipeline's own first lookup was restricted to (see
+        # set_config); reported once by choose_match as attempted_search_id.
+        self._initial_search_id: str | None = None
         # Serializes the apply phase across concurrently-reviewed tasks
         # (see queue.py docstring). Acquired just before returning a
         # final decision from choose_match/choose_item; released by the
@@ -79,9 +84,28 @@ class WebImportSession(importer.ImportSession):
         self.apply_lock = apply_lock
         self._lock_acquired = False
 
+    def set_config(self, config):
+        """beets' pipeline runs the first candidate lookup itself, before
+        choose_match, restricted to `session.config["search_ids"]`. That
+        view is the shared global import config, and sessions run in
+        parallel, so a Direct ID can't be written there. Instead give this
+        session a private config: a snapshot of the global sources with
+        the ID overlaid. The pipeline then does only the targeted lookup
+        instead of a broad search followed by a second ID lookup."""
+        search_id = self.preset_search_id
+        if search_id and search_id.strip():
+            overlay = confuse.ConfigSource.of({"import": {"search_ids": [search_id]}})
+            config = confuse.RootView([overlay, *config.root().sources])["import"]
+            self._initial_search_id = search_id
+            self.preset_search_id = None
+        super().set_config(config)
+
     # -- album matching -----------------------------------------------
     def choose_match(self, task: importer.ImportTask):
         attempted_search_id = None
+        if self._initial_search_id is not None:
+            # The pipeline already ran the targeted lookup (set_config).
+            attempted_search_id, self._initial_search_id = self._initial_search_id, None
         # Consumed once per pass. Set either at session start (Direct ID
         # Import via the inbox-start endpoint / reimport) or by a
         # mid-review "search_id" decision -- including the UI's
