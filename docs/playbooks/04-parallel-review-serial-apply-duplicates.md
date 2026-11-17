@@ -15,8 +15,7 @@
 Before running the server, wipe any previous library database / files and create a duplicate copy of the inbox album:
 
 ```bash
-rm -f .config/library.db .config/library.db-*.bak && rm -rf .library
-rm -f .config/state.pickle && rm -rf .config/webimport && find .inbox -name .webimport_imported -delete
+scripts/dev-reset.sh
 cp -r .inbox/Mulan .inbox/Mulan_dup
 ```
 
@@ -27,7 +26,7 @@ cp -r .inbox/Mulan .inbox/Mulan_dup
 Start the `beet webimport` daemon with the local configuration:
 
 ```bash
-BEETSDIR=./.config .venv/bin/beet webimport
+scripts/dev-server.sh
 ```
 
 The server serves the web frontend at `http://localhost:8338`.

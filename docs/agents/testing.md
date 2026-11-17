@@ -19,12 +19,11 @@ Per ADR-0009 and `.scratch/webimport/spec.md`'s Testing Decisions section, testi
 - **Workflow:**
   1. **Reset disposable test library:**
      ```bash
-     rm -f .config/library.db .config/library.db-*.bak && rm -rf .library
-     rm -f .config/state.pickle && rm -rf .config/webimport && find .inbox -name .webimport_imported -delete
+     scripts/dev-reset.sh
      ```
   2. **Start the server:**
      ```bash
-     BEETSDIR=./.config .venv/bin/beet webimport
+     scripts/dev-server.sh
      ```
      (Serves on `http://localhost:8338`).
   3. **Execute playbook steps:** Agent drives the browser via Playwright MCP tools (`browser_navigate`, `browser_click`, `browser_type`, `browser_snapshot`, `browser_wait_for`, etc.) to execute user flows through the real web UI (`static/app.js`).

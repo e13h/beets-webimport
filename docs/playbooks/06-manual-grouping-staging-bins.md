@@ -35,8 +35,7 @@ Running this playbook against live MusicBrainz and Cover Art Archive lookups req
 Before running the server, wipe existing library databases, temporary state, and previous inbox grouping directories:
 
 ```bash
-rm -f .config/library.db .config/library.db-*.bak && rm -rf .library
-rm -f .config/state.pickle && rm -rf .config/webimport && find .inbox -name .webimport_imported -delete
+scripts/dev-reset.sh
 rm -rf .inbox
 mkdir -p .inbox
 ```
@@ -73,7 +72,7 @@ python3 /tmp/make_mixed_fixture.py && rm /tmp/make_mixed_fixture.py
 Start the real server in the background:
 
 ```bash
-BEETSDIR=./.config .venv/bin/beet webimport
+scripts/dev-server.sh
 ```
 The server will bind to `http://localhost:8338`.
 

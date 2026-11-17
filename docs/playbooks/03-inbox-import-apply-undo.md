@@ -41,8 +41,7 @@ Executing this playbook against live MusicBrainz and Cover Art Archive services 
 Before starting the server, wipe existing library databases, temporary cache state, and library media files:
 
 ```bash
-rm -f .config/library.db .config/library.db-*.bak && rm -rf .library
-rm -f .config/state.pickle && rm -rf .config/webimport && find .inbox -name .webimport_imported -delete
+scripts/dev-reset.sh
 ```
 
 Ensure the test inbox folder `.inbox/Mulan (Original Motion Picture Soundtrack)` is present with its 4 audio tracks:
@@ -54,7 +53,7 @@ ls -la ".inbox/Mulan (Original Motion Picture Soundtrack)"
 Start the real server with configuration pointing to `./.config`:
 
 ```bash
-BEETSDIR=./.config .venv/bin/beet webimport
+scripts/dev-server.sh
 ```
 The server serves at `http://localhost:8338` (bound to `0.0.0.0:8338`).
 

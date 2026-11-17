@@ -32,8 +32,7 @@ When importing or looking up live MusicBrainz / Cover Art Archive metadata durin
 Wipe existing database and library state, and ensure a test album is imported into the library:
 
 ```bash
-rm -f .config/library.db .config/library.db-*.bak && rm -rf .library
-rm -f .config/state.pickle && rm -rf .config/webimport && find .inbox -name .webimport_imported -delete
+scripts/dev-reset.sh
 ```
 
 Create and import a minimal test fixture if the library is empty:
@@ -80,7 +79,7 @@ python3 /tmp/setup_touch_fixture.py && rm /tmp/setup_touch_fixture.py
 Start the real `beet webimport` server:
 
 ```bash
-BEETSDIR=./.config .venv/bin/beet webimport
+scripts/dev-server.sh
 ```
 The server serves at `http://localhost:8338`.
 

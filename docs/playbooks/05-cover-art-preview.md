@@ -13,8 +13,7 @@ It provides end-to-end verification for cover art previews per **ADR-0009** and 
 Ensure a clean test environment before starting the server:
 
 ```bash
-rm -f .config/library.db .config/library.db-*.bak && rm -rf .library
-rm -f .config/state.pickle && rm -rf .config/webimport && find .inbox -name .webimport_imported -delete
+scripts/dev-reset.sh
 ```
 
 Ensure an inbox directory exists under `.inbox/` (for instance `.inbox/Mulan (Original Motion Picture Soundtrack)` or an audio file directory).
@@ -24,7 +23,7 @@ Ensure an inbox directory exists under `.inbox/` (for instance `.inbox/Mulan (Or
 Start the real `beet webimport` plugin server in the background:
 
 ```bash
-BEETSDIR=./.config .venv/bin/beet webimport
+scripts/dev-server.sh
 ```
 
 The web server serves the web UI at `http://localhost:8338`.
@@ -266,8 +265,7 @@ Stop the server process when testing concludes and clean up disposable files if 
 
 ```bash
 # Clean up temporary test files
-rm -f .config/library.db .config/library.db-*.bak && rm -rf .library
-rm -f .config/state.pickle && rm -rf .config/webimport && find .inbox -name .webimport_imported -delete
+scripts/dev-reset.sh
 ```
 
 ---

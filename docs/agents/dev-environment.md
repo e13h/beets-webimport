@@ -22,13 +22,13 @@ source of truth and current work breakdown), and `docs/adr/`
   - Library DB: `.config/library.db` (git-ignored; regenerated)
   - Music dir (import destination, copy-mode): `.library/`
   - Inbox: `.inbox/` — contains a 4-track Mulan album for hello-world tests.
-- **Run the server:** `BEETSDIR=./.config .venv/bin/beet webimport`
+- **Run the server:** `scripts/dev-server.sh`
   (serves on `0.0.0.0:8338`).
-- **Reset the disposable library between test runs:**
-  ```bash
-  rm -f .config/library.db .config/library.db-*.bak && rm -rf .library
-  rm -f .config/state.pickle && rm -rf .config/webimport && find .inbox -name .webimport_imported -delete  # fuller reset; markers make folders look already-imported
-  ```
+- **Reset the disposable library between test runs:** `scripts/dev-reset.sh`
+  (`--start` to restart the server afterwards). Stops a running dev server
+  on port 8338 first, then removes the library DB, `.library/`, import
+  state, plugin data, and `.webimport_imported` markers. Inbox audio and
+  staging bins are never touched.
 
 ## The single most important gotcha: `plugins:` REPLACES the default
 

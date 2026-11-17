@@ -28,8 +28,7 @@ This playbook exercises:
 Wipe the test library database and destination directories before running:
 
 ```bash
-rm -f .config/library.db .config/library.db-*.bak && rm -rf .library
-rm -f .config/state.pickle && rm -rf .config/webimport && find .inbox -name .webimport_imported -delete
+scripts/dev-reset.sh
 ```
 
 ### 2. Start the Server
@@ -37,7 +36,7 @@ rm -f .config/state.pickle && rm -rf .config/webimport && find .inbox -name .web
 Start the real `beet webimport` server:
 
 ```bash
-BEETSDIR=./.config .venv/bin/beet webimport
+scripts/dev-server.sh
 ```
 
 The server listens on `http://localhost:8338`.

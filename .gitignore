@@ -6,3 +6,4 @@ __pycache__/
 .config/webimport/
 .library/
 .playwright-mcp/
+.config/beet.log

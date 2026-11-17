@@ -23,8 +23,7 @@ It exercises and validates:
 Clear any existing library database, cache files, and imported media before beginning:
 
 ```bash
-rm -f .config/library.db .config/library.db-*.bak && rm -rf .library
-rm -f .config/state.pickle && rm -rf .config/webimport && find .inbox -name .webimport_imported -delete
+scripts/dev-reset.sh
 ```
 
 Ensure test audio files exist in `.inbox/Mulan (Original Motion Picture Soundtrack)`:
@@ -36,7 +35,7 @@ ls -la ".inbox/Mulan (Original Motion Picture Soundtrack)"
 Start the in-process server using the test configuration:
 
 ```bash
-BEETSDIR=./.config .venv/bin/beet webimport
+scripts/dev-server.sh
 ```
 
 The server serves the web interface at `http://localhost:8338`.

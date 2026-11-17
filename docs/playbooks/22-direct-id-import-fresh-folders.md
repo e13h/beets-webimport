@@ -37,8 +37,7 @@ targeted lookup registers a review task with an empty candidate list and
 ### 1. Reset Disposable Library and State
 
 ```bash
-rm -f .config/library.db .config/library.db-*.bak && rm -rf .library
-rm -f .config/state.pickle && rm -rf .config/webimport && find .inbox -name .webimport_imported -delete
+scripts/dev-reset.sh
 ```
 
 Ensure the test inbox folder is present:
@@ -50,7 +49,7 @@ ls -la ".inbox/Mulan (Original Motion Picture Soundtrack)"
 ### 2. Start the Webimport Server
 
 ```bash
-BEETSDIR=./.config .venv/bin/beet webimport
+scripts/dev-server.sh
 ```
 
 ---
