@@ -848,7 +848,8 @@ async function loadLibrary(q = "") {
     tile.className = "album-tile grabbable";
     tile.innerHTML = `
       <div class="art-wrap">
-        <img src="/api/library/albums/${a.id}/art?thumb=1" onerror="this.parentElement.classList.add('no-art')" />
+        <img src="/api/library/albums/${a.id}/art?thumb=1" loading="lazy" decoding="async" alt=""
+             onload="this.classList.add('loaded')" onerror="this.parentElement.classList.add('no-art')" />
         <div class="art-placeholder"><span>No Art</span></div>
       </div>
       <span class="lib-badge">${escapeHtml(a.navidrome_library || "unassigned")}</span>

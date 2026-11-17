@@ -211,6 +211,21 @@ button:disabled { opacity: .5; cursor: default; }
   height: 100%;
   object-fit: cover;
   display: block;
+  opacity: 0;
+  transition: opacity 0.25s ease-in;
+}
+.album-tile .art-wrap img.loaded { opacity: 1; }
+/* Subtle pulse while the thumbnail is in flight. */
+.album-tile .art-wrap:not(.no-art):has(img:not(.loaded)) {
+  animation: art-pending 1.2s ease-in-out infinite alternate;
+}
+@keyframes art-pending {
+  from { background: #181a20; }
+  to { background: #22252e; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .album-tile .art-wrap img { transition: none; }
+  .album-tile .art-wrap:not(.no-art):has(img:not(.loaded)) { animation: none; }
 }
 .album-tile .art-placeholder {
   display: none;

@@ -61,9 +61,6 @@ def test_album_art_served_from_fresh_request_thread(lib, tmp_path, create_wav_fi
     resp = contextvars.Context().run(client.get, f"/api/library/albums/{album.id}/art")
     assert resp.status_code == 200
 
-    albums = contextvars.Context().run(client.get, "/api/library/albums").get_json()
-    assert albums[0]["has_art"] is True
-
 
 def test_worker_pool_threads_have_music_dir(lib):
     pool = InboxWorkerPool(1, initializer=lambda: context.set_music_dir(lib.directory))

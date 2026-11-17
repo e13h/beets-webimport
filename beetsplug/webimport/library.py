@@ -39,35 +39,31 @@ def get_listening_groups(lib) -> list[str]:
     return sorted(groups)
 
 
-def _album_summary(album) -> dict:
-    has_art = bool(album.artpath)
-    if not has_art:
-        # Check if embedded art exists
-        for item in album.items():
-            try:
-                import mediafile
-
-                mf = mediafile.MediaFile(syspath(item.path))
-                if mf.art:
-                    has_art = True
-                    break
-            except Exception:
-                pass
+def _album_summary(album, track_count: int) -> dict:
+    # No art check here: it meant opening a track file per album (~2.4s
+    # for 143 albums). Each tile's thumbnail request reports art (or 404s
+    # to the "No Art" placeholder) on its own, in parallel.
     return {
         "id": album.id,
         "albumartist": album.albumartist,
         "album": album.album,
         "year": album.year,
         "navidrome_library": album.get("navidrome_library", ""),
-        "track_count": len(list(album.items())),
-        "has_art": has_art,
+        "track_count": track_count,
     }
 
 
 def search_albums(lib, query_str: str = "") -> list[dict]:
     q = query_str.strip() if query_str else ""
     albums = lib.albums(q) if q else lib.albums()
-    return [_album_summary(a) for a in albums]
+    # One grouped query instead of an items() query per album.
+    with lib.transaction() as tx:
+        counts = dict(tx.query(
+            "SELECT album_id, COUNT(*) FROM items WHERE album_id IS NOT NULL GROUP BY album_id"
+        ))
+    return [_album_summary(a, counts.get(a.id, 0)) for a in albums]
+
+
 
 
 def _jsonable_fields(obj) -> dict:
