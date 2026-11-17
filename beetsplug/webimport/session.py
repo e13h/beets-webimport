@@ -11,6 +11,7 @@ attribute names referenced below (`task.candidates`, `action.*`,
 from __future__ import annotations
 
 import logging
+import os
 
 import confuse
 
@@ -18,7 +19,7 @@ from beets import autotag, importer
 from beets.importer import Action, DuplicateAction
 from beets.util import displayable_path
 
-from . import snapshot
+from . import purchase, snapshot
 
 log = logging.getLogger("beets.webimport")
 
@@ -33,6 +34,8 @@ def _serialize_album_match(i, match) -> dict:
         "year": getattr(info, "year", None),
         "label": getattr(info, "label", None),
         "album_id": getattr(info, "album_id", None),
+        "media": getattr(info, "media", None),
+        "country": getattr(info, "country", None),
         "data_source": getattr(info, "data_source", None),
         "data_url": getattr(info, "data_url", None),
         "tracks": [
@@ -136,9 +139,16 @@ class WebImportSession(importer.ImportSession):
                 matched_via = {**matched_via, "fallback": True}
                 self._lookup_candidates(task, "")
 
+        purchase_info = None
+        if not attempted_search_id and (matched_via is None or matched_via.get("fallback")):
+            purchase_info = self._add_purchase_candidates(task)
+
         candidates_payload = [
             _serialize_album_match(i, m) for i, m in enumerate(task.candidates)
         ]
+        if purchase_info:
+            for c, m in zip(candidates_payload, task.candidates):
+                c["looks_purchased"] = purchase.looks_purchased(m.info, purchase_info["year"])
         payload = {
             "path": displayable_path(task.paths[0]) if task.paths else "",
             "items": [displayable_path(i.path) for i in task.items],
@@ -152,18 +162,53 @@ class WebImportSession(importer.ImportSession):
             payload["attempted_search_id"] = attempted_search_id
         if matched_via is not None:
             payload["matched_via"] = matched_via
+        if purchase_info:
+            payload["purchase"] = purchase_info
         pr = self.review_manager.register("match", payload["path"], payload)
         decision = self.review_manager.wait_for_decision(pr.task_id)
 
         return self._apply_decision_album(task, decision)
 
-    def _lookup_candidates(self, task, search_id: str):
+    def _add_purchase_candidates(self, task) -> dict | None:
+        """Store purchases: add the likeliest digital releases of the album
+        (see purchase.py) to the candidates and list the ones that look
+        like the purchased release first. Returns {"store", "year",
+        "added"} for the review payload, or None if not a purchase."""
+        if not self.paths or self.query is not None:
+            return None
+        try:
+            folder = os.fsdecode(task.paths[0]) if task.paths else None  # beets keeps bytes
+            store = purchase.detect_store(task.items, folder)
+            if store is None:
+                return None
+            hints = purchase.album_hints(task.items)
+            existing = [m.info.album_id for m in task.candidates]
+            ids = purchase.digital_release_ids(hints, exclude=existing)
+            added = 0
+            if ids:
+                before = list(task.candidates)
+                self._lookup_candidates(task, ids)
+                found = [m for m in task.candidates if m.info.album_id not in existing]
+                added = len(found)
+                task.candidates = before + found
+            year = hints.get("year")
+            task.candidates.sort(key=lambda m: (
+                not purchase.looks_purchased(m.info, year), m.distance.distance))
+            return {"store": store, "year": year, "added": added}
+        except Exception:  # noqa: BLE001 -- never block a review on this
+            log.warning("webimport: purchase candidate search failed", exc_info=True)
+            return None
+
+    def _lookup_candidates(self, task, search_id: str | list[str]):
         """Runs the candidate search restricted to a specific backend ID
         (equivalent of `-S <id>`). An empty/blank search_id clears the
         restriction and runs the normal broad tag/acoustic search -- the
         UI's "Auto-search instead" fallback after a failed Direct ID
         lookup. Raw strings pass through verbatim: bare UUID, MusicBrainz
         release URL, Discogs release URL, anything the backend parses."""
+        if isinstance(search_id, list):
+            task.lookup_candidates(search_ids=search_id)
+            return
         if not search_id or not search_id.strip():
             # Empty list = unrestricted search. lookup_candidates requires
             # the argument in beets 2.x (calling it bare raises TypeError

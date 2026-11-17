@@ -67,7 +67,15 @@ Consequences of the homelab settings that tests and playbooks must expect:
   file; library thumbnails come from the embedded-art fallback.
 - `chroma` fingerprints every track on import (AcoustID lookups), which
   costs real time even for a Direct ID Import.
-- `scrub: auto` strips existing tags before beets writes its own.
+- `scrub: auto: no`: the files' original tags (store IDs, purchase info)
+  survive import; beets overwrites only the fields it sets.
+- `match.distance_weights.missing_tracks: 0.1` (beets' default is 0.9): a
+  few tracks bought from an album match the full release at a low distance
+  instead of ~0.5. Expect distances around 0.17 for one track of 11.
+- `musicbrainz.search_limit: 2`: broad searches return two releases. For
+  store purchases (iTunes `plID`, Amazon "Amazon.com Song ID" comment) the
+  review also searches digital releases of the album and adds the best two
+  (`purchase.py`), marking ones from the files' year "likely your purchase".
 - `webimport` uses its built-in defaults (grace period, `tag_fields`), since
   the homelab sets only host/port/inbox.
 

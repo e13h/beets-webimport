@@ -89,7 +89,6 @@ def test_lookup_art_downloads_full_res_once(purchase_dir, fake_net):
     assert info["collection_name"].startswith("Mulan")
     assert info["store_url"].startswith("https://music.apple.com/")
     assert (info["width"], info["height"]) == (1500, 1500)
-    assert info["existing_cover"] is None
     # Lookup used the purchase storefront; second call is cached.
     assert fake_net[0][1]["country"] == "us"
     itunes.art_for_dir(purchase_dir)
@@ -102,13 +101,12 @@ def test_save_cover_writes_cover_jpg(purchase_dir, fake_net):
     assert path.read_bytes() == jpeg(1500, 1500)
 
 
-def test_save_cover_keeps_existing_cover(purchase_dir, fake_net):
+def test_save_cover_sets_aside_existing_cover(purchase_dir, fake_net):
     (purchase_dir / "cover.png").write_bytes(b"user art")
-    assert itunes.art_for_dir(purchase_dir)["existing_cover"] == "cover.png"
     itunes.save_cover(purchase_dir)
     assert (purchase_dir / "cover.jpg").exists()
     assert not (purchase_dir / "cover.png").exists()
-    assert (purchase_dir / "cover.png.before-itunes").read_bytes() == b"user art"
+    assert (purchase_dir / "cover.png.before-webimport").read_bytes() == b"user art"
 
 
 def test_lookup_without_results(purchase_dir, monkeypatch):
@@ -147,7 +145,7 @@ def fake_mb(monkeypatch):
         return Resp(content=jpeg(1500, 1500))
 
     monkeypatch.setattr(itunes.requests, "get", get)
-    monkeypatch.setattr(itunes, "MB_MIN_INTERVAL", 0)
+    monkeypatch.setattr(itunes.mbapi, "MIN_INTERVAL", 0)
     itunes.clear_cache()
     yield stored, queries
     itunes.clear_cache()
@@ -195,7 +193,7 @@ def test_mb_unreachable_is_not_cached(purchase_dir, monkeypatch):
         raise itunes.requests.ConnectionError("down")
 
     monkeypatch.setattr(itunes.requests, "get", get)
-    monkeypatch.setattr(itunes, "MB_MIN_INTERVAL", 0)
+    monkeypatch.setattr(itunes.mbapi, "MIN_INTERVAL", 0)
     itunes.clear_cache()
     assert itunes.musicbrainz_match_for_dir(purchase_dir) is None
     assert itunes.musicbrainz_match_for_dir(purchase_dir) is None

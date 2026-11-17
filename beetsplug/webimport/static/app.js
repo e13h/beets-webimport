@@ -477,13 +477,21 @@ async function openReview(pr) {
 
   const container = document.createElement("div");
   container.innerHTML = `<h3>${escapeHtml(pr.path)}</h3>`;
-  const itunesCard = document.createElement("div");
-  container.appendChild(itunesCard);
+  const purchase = pr.payload.purchase;
+  if (purchase) {
+    const note = document.createElement("div");
+    note.className = "muted purchase-note";
+    const store = { itunes: "iTunes", amazon: "Amazon" }[purchase.store] || purchase.store;
+    note.textContent = `${store} purchase` +
+      (purchase.added ? `: added ${purchase.added} digital release${purchase.added === 1 ? "" : "s"} of this album to the candidates.` : ".") +
+      (purchase.year ? ` Releases marked "likely your purchase" are digital and from ${purchase.year}, like your files.` : "");
+    container.appendChild(note);
+  }
+  const artHost = document.createElement("div");
+  container.appendChild(artHost);
   const list = document.createElement("div");
   container.appendChild(list);
-  // Set once the iTunes art card loads; read when a decision is sent.
-  let useItunesArt = () => false;
-  loadItunesArtCard(itunesCard, pr.path, container).then((getter) => { useItunesArt = getter; });
+  const artChoice = createArtChoiceCard(artHost, pr, container);
 
   let focusedIndex = null;
 
@@ -494,8 +502,9 @@ async function openReview(pr) {
       div.className = "candidate" + (focusedIndex === i ? " focused" : "");
       const artistAlbum = c.album ? `${c.artist} – ${c.album}` : `${c.artist} – ${c.title}`;
       div.innerHTML = `
-        <div>${escapeHtml(artistAlbum)} ${c.year ? `(${c.year})` : ""}</div>
-        <div class="dist">distance ${c.distance} · ${escapeHtml(c.data_source || "?")}</div>
+        <div>${escapeHtml(artistAlbum)} ${c.year ? `(${c.year})` : ""}
+          ${c.looks_purchased ? '<span class="badge purchased" title="Digital release from the same year as your files">likely your purchase</span>' : ""}</div>
+        <div class="dist">distance ${c.distance} · ${escapeHtml(c.data_source || "?")}${[c.media, c.country, c.tracks ? `${c.tracks.length} tracks` : ""].filter(Boolean).map((s) => " · " + escapeHtml(s)).join("")}</div>
         <div class="art-compare" data-art></div>
         <div class="row">
           <button data-select>Select</button>
@@ -505,13 +514,14 @@ async function openReview(pr) {
           focusedIndex = i;
           renderCandidates();
           loadArtCompare($(".candidate.focused", list), pr, c);
+          artChoice.focusCandidate(c);
         }
       });
       div.querySelector("[data-select]").addEventListener("click", async (e) => {
         e.stopPropagation();
         const toast = createProgressToast(`Applying import for ${pr.path}…`);
         try {
-          await decide(pr.task_id, { action: "select", index: i, use_itunes_art: useItunesArt() });
+          await decide(pr.task_id, { action: "select", index: c.index, art_choice: artChoice.choice() });
           backdrop.close();
           loadInbox();
           toast.done(`Import applied successfully for ${pr.path}!`);
@@ -529,6 +539,7 @@ async function openReview(pr) {
     renderCandidates();
     loadArtCompare($(".candidate", list), pr, pr.payload.candidates[0]);
   }
+  artChoice.focusCandidate(pr.payload.candidates[0] || null);
 
   // Matched automatically through the album's Apple Music link.
   const via = pr.payload.matched_via;
@@ -624,7 +635,7 @@ async function openReview(pr) {
   idRow.querySelector("[data-asis]").addEventListener("click", async () => {
     const toast = createProgressToast(`Applying import as-is for ${pr.path}…`);
     try {
-      await decide(pr.task_id, { action: "asis", use_itunes_art: useItunesArt() });
+      await decide(pr.task_id, { action: "asis", art_choice: artChoice.choice({ asis: true }) });
       backdrop.close();
       loadInbox();
       toast.done(`Imported as-is.`);
@@ -648,49 +659,119 @@ async function openReview(pr) {
   var backdrop = openModal(container);
 }
 
-// iTunes purchases: offer the store's artwork instead of Cover Art Archive.
-// Resolves to a function returning whether to use it (false if no card).
-async function loadItunesArtCard(host, path, reviewContainer) {
-  let info;
-  try {
-    info = await api(`/api/inbox/itunes_art?path=${encodeURIComponent(path)}`);
-  } catch {
-    return () => false;
-  }
-  if (!info.detected) return () => false;
+// Album art for an import: the selected release's Cover Art Archive art
+// (beets' default), art embedded in the files, iTunes Store art, or an
+// image already in the inbox folder. The server arranges the folder so
+// fetchart picks the choice. Default: a folder image if there is one (it's
+// what beets would use anyway), else iTunes art, else whichever of the
+// embedded and Cover Art Archive images is larger.
+function createArtChoiceCard(host, pr, reviewContainer) {
+  let sources = null;       // /api/inbox/source_art
+  let candidate = null;     // focused candidate
+  let caa = {};             // album_id -> {state, info, url}
+  let selected = null;
+  let touched = false;
 
-  if (info.error) {
-    host.innerHTML = `<div class="itunes-card"><div>
-        <div class="itunes-title">iTunes purchase detected</div>
-        <div class="warn-text">${escapeHtml(info.error)}</div>
-      </div></div>`;
-    return () => false;
+  const LABELS = { candidate: "Cover Art Archive", embedded: "Art in your files", itunes: "iTunes Store art", folder: "Image in the folder" };
+  const area = (x) => (x && x.width && x.height ? x.width * x.height : 0);
+  const size = (x) => [x && x.width && x.height ? `${x.width} × ${x.height} px` : "", x && x.bytes ? explorerBytes(x.bytes) : ""].filter(Boolean).join(" · ");
+
+  function options() {
+    const out = [];
+    const cur = candidate && caa[candidate.album_id];
+    if (candidate) out.push({ value: "candidate", url: cur && cur.url, detail: !cur || cur.state === "loading" ? "checking size…" : cur.state === "none" ? "this release has no art" : size(cur.info) || "size unknown" });
+    if (sources.embedded) {
+      const e = sources.embedded;
+      const coverage = e.tracks_with_this_art < e.tracks_total ? ` · on ${e.tracks_with_this_art} of ${e.tracks_total} tracks` : "";
+      out.push({ value: "embedded", url: e.image_url, detail: size(e) + coverage });
+    }
+    if (sources.itunes && !sources.itunes.error) out.push({ value: "itunes", url: sources.itunes.image_url, detail: size(sources.itunes) });
+    if (sources.folder) out.push({ value: "folder", url: sources.folder.image_url, detail: `${sources.folder.name} · ${size(sources.folder)}` });
+    return out;
   }
 
-  const size = info.width && info.height ? `${info.width} × ${info.height} px · ` : "";
-  const format = (info.mime || "").replace("image/", "").toUpperCase();
-  host.innerHTML = `
-    <div class="itunes-card">
-      <a class="art-frame" href="${info.image_url}" target="_blank" rel="noopener" title="Open full size">
-        <img src="${info.image_url}" alt="iTunes artwork" />
-      </a>
-      <div class="itunes-body">
-        <div class="itunes-title">iTunes purchase detected</div>
-        <div class="muted">${escapeHtml(info.collection_name || "")}${info.artist ? " — " + escapeHtml(info.artist) : ""}
-          ${info.store_url ? ` · <a href="${escapeHtml(info.store_url)}" target="_blank" rel="noopener">Apple Music</a>` : ""}</div>
-        <div class="muted">${size}${explorerBytes(info.bytes)} · ${escapeHtml(format)}</div>
-        <label class="itunes-toggle"><input type="checkbox" data-use-itunes ${info.existing_cover ? "" : "checked"} />
-          Use iTunes art for this import</label>
-        <div class="muted itunes-note">${info.existing_cover
-          ? `This folder already has <b>${escapeHtml(info.existing_cover)}</b>, which will be used unless you check this (it's kept, renamed to ${escapeHtml(info.existing_cover)}.before-itunes).`
-          : "Saved as cover.jpg in the inbox folder, so beets embeds it instead of the Cover Art Archive image."}</div>
-      </div>
-    </div>`;
-  const box = host.querySelector("[data-use-itunes]");
-  const sync = () => reviewContainer.classList.toggle("use-itunes-art", box.checked);
-  box.addEventListener("change", sync);
-  sync();
-  return () => box.checked;
+  function defaultChoice() {
+    if (sources.folder) return "folder";
+    if (sources.itunes && !sources.itunes.error) return "itunes";
+    const cur = candidate && caa[candidate.album_id];
+    if (sources.embedded) {
+      if (!candidate || !cur || cur.state === "none" || cur.state === "error") return "embedded";
+      if (cur.state === "ok" && area(sources.embedded) > area(cur.info)) return "embedded";
+    }
+    return candidate ? "candidate" : null;
+  }
+
+  function note() {
+    const aside = sources.folder ? [sources.folder.name, ...sources.folder.others] : [];
+    const asideText = aside.length ? ` ${aside.map(escapeHtml).join(", ")} ${aside.length === 1 ? "is" : "are"} set aside (renamed *.before-webimport).` : "";
+    switch (selected) {
+      case "candidate": return `beets fetches the selected release's front cover from the Cover Art Archive.${asideText}`;
+      case "embedded": {
+        const e = sources.embedded;
+        const warn = e.distinct_images > 1 ? ` Your files carry ${e.distinct_images} different images; this is the most common one.` : "";
+        return `Saved as cover.jpg in the inbox folder; beets embeds it in the library copies.${warn}${asideText}`;
+      }
+      case "itunes": return `Downloaded from the iTunes Store and saved as cover.jpg in the inbox folder.${asideText}`;
+      case "folder": return `beets uses ${escapeHtml(sources.folder.name)} from the inbox folder.`;
+      default: return "";
+    }
+  }
+
+  function render() {
+    if (!sources) return;
+    const opts = options();
+    if (opts.length < 2 && !sources.folder) { host.innerHTML = ""; reviewContainer.classList.remove("art-replaced"); return; }
+    if (!touched || !opts.some((o) => o.value === selected)) selected = defaultChoice();
+    host.innerHTML = `
+      <div class="art-choice">
+        <div class="art-choice-title">Album art for this import</div>
+        <div class="art-options">${opts.map((o) => `
+          <label class="art-option${o.value === selected ? " selected" : ""}">
+            <input type="radio" name="art-choice-${pr.task_id}" value="${o.value}" ${o.value === selected ? "checked" : ""} data-art-choice />
+            <span class="art-thumb">${o.url ? `<img src="${escapeHtml(o.url)}" alt="" />` : ""}</span>
+            <span class="art-option-text"><b>${LABELS[o.value]}</b><span class="muted">${escapeHtml(o.detail || "")}</span></span>
+          </label>`).join("")}
+        </div>
+        <div class="muted art-choice-note">${note()}</div>
+      </div>`;
+    host.querySelectorAll("[data-art-choice]").forEach((r) => r.addEventListener("change", () => {
+      selected = r.value; touched = true; render();
+    }));
+    reviewContainer.classList.toggle("art-replaced", !!selected && selected !== "candidate");
+  }
+
+  async function loadCaa(c) {
+    if (!c || !c.album_id || caa[c.album_id]) return;
+    const entry = (caa[c.album_id] = { state: "loading" });
+    render();
+    try {
+      const [info, resolved] = await Promise.all([
+        api(`/api/coverart/caa_info?mbid=${encodeURIComponent(c.album_id)}`),
+        api("/api/coverart/resolve", { method: "POST", body: JSON.stringify({ item_dir: pr.path, release_mbid: c.album_id, release_group_mbid: null }) }),
+      ]);
+      entry.url = resolved.source_url;
+      if (info.unavailable) entry.state = "error";
+      else if (!info.info) entry.state = "none";
+      else { entry.state = "ok"; entry.info = info.info; }
+    } catch {
+      entry.state = "error";
+    }
+    render();
+  }
+
+  api(`/api/inbox/source_art?path=${encodeURIComponent(pr.path)}`)
+    .then((s) => { sources = s; render(); })
+    .catch(() => {});
+
+  return {
+    focusCandidate(c) { candidate = c; render(); loadCaa(c); },
+    // What to send with the decision. "Use as-is" has no release, so
+    // Cover Art Archive isn't an option there: leave the folder alone.
+    choice({ asis = false } = {}) {
+      if (!sources || !selected) return null;
+      return asis && selected === "candidate" ? null : selected;
+    },
+  };
 }
 
 async function loadArtCompare(candidateEl, pr, candidate) {

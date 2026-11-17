@@ -25,14 +25,14 @@ from __future__ import annotations
 import os
 import re
 import threading
-import time
 from pathlib import Path
 
 import logging
 
 import requests
 
-from .coverart import COVER_EXTS, image_info
+from . import mbapi
+from .coverart import image_info
 
 log = logging.getLogger("beets")
 
@@ -40,10 +40,6 @@ LOOKUP_URL = "https://itunes.apple.com/lookup"
 MP4_EXTS = (".m4a", ".m4p", ".m4b", ".mp4")
 TIMEOUT = 10
 HEADERS = {"User-Agent": "beets-webimport/0.1"}
-# MusicBrainz asks clients to identify themselves with a contact URL.
-MB_HEADERS = {"User-Agent": "beets-webimport/0.1 ( https://github.com/beetbox/beets )"}
-COVER_NAME = "cover"
-BACKUP_SUFFIX = ".before-itunes"
 
 # iTunes Store storefront IDs (the sfID atom) -> lookup `country`.
 STOREFRONTS = {
@@ -54,17 +50,13 @@ STOREFRONTS = {
     143445: "at", 143459: "ch", 143446: "be", 143467: "in",
 }
 
-MB_URL_LOOKUP = "https://musicbrainz.org/ws/2/url"
-# MusicBrainz allows one request per second per client.
-MB_MIN_INTERVAL = 1.1
 # Extra stores beyond STOREFRONTS that MusicBrainz editors commonly link.
 EXTRA_STORE_COUNTRIES = ("pl", "pt", "tw", "hk", "sg", "za", "ar", "cl", "co", "ru", "tr")
 
 _cache: dict[int, tuple[dict, bytes | None]] = {}
 _cache_lock = threading.Lock()
 _mb_cache: dict[int, list[str]] = {}
-_mb_lock = threading.Lock()  # also serializes requests for the rate limit
-_mb_last_request = 0.0
+_mb_lock = threading.Lock()
 
 
 def clear_cache() -> None:
@@ -119,17 +111,6 @@ def full_res_url(artwork_url: str) -> str:
     return re.sub(r"/\d+x\d+[a-z]*(-\d+)?\.(jpg|png|webp)$", r"/10000x10000bb.\2", artwork_url)
 
 
-def _existing_cover(folder: Path) -> str | None:
-    try:
-        for name in sorted(os.listdir(folder)):
-            stem, ext = os.path.splitext(name.lower())
-            if stem == COVER_NAME and ext in COVER_EXTS:
-                return name
-    except OSError:
-        pass
-    return None
-
-
 def _fetch(collection_id: int, country: str | None) -> tuple[dict, bytes | None]:
     with _cache_lock:
         hit = _cache.get(collection_id)
@@ -174,13 +155,12 @@ def _fetch(collection_id: int, country: str | None) -> tuple[dict, bytes | None]
 
 def art_for_dir(folder: Path) -> dict | None:
     """iTunes art details for an inbox folder, or None if it isn't an
-    iTunes purchase. Includes `existing_cover`, the name of a cover image
-    already in the folder (which would otherwise be used)."""
+    iTunes purchase."""
     ids = detect_ids(folder)
     if ids is None:
         return None
     info, _ = _fetch(ids["collection_id"], ids["country"])
-    return {**info, "country": ids["country"], "existing_cover": _existing_cover(Path(folder))}
+    return {**info, "country": ids["country"]}
 
 
 def image_for_collection(collection_id: int) -> bytes | None:
@@ -189,10 +169,9 @@ def image_for_collection(collection_id: int) -> bytes | None:
     return hit[1] if hit else None
 
 
-def save_cover(folder: Path) -> Path:
-    """Save the folder's iTunes art as cover.<ext>. An existing cover
-    image is renamed with a `.before-itunes` suffix, not overwritten (the
-    suffix makes fetchart ignore it)."""
+def save_cover(folder: Path, **kw) -> Path:
+    """Make the folder's iTunes art the image fetchart picks (see
+    sourceart.save_as_cover; `kw` passes fetchart's cover_names/cautious)."""
     folder = Path(folder)
     ids = detect_ids(folder)
     if ids is None:
@@ -200,16 +179,9 @@ def save_cover(folder: Path) -> Path:
     info, data = _fetch(ids["collection_id"], ids["country"])
     if not data:
         raise ValueError(info.get("error") or "No iTunes artwork available.")
+    from .sourceart import save_as_cover
 
-    existing = _existing_cover(folder)
-    if existing:
-        os.replace(folder / existing, folder / (existing + BACKUP_SUFFIX))
-    ext = {"image/png": ".png", "image/webp": ".webp"}.get(info.get("mime"), ".jpg")
-    target = folder / f"{COVER_NAME}{ext}"
-    tmp = target.with_name(target.name + ".tmp")
-    tmp.write_bytes(data)
-    os.replace(tmp, target)
-    return target
+    return save_as_cover(folder, data, info.get("mime"), **kw)
 
 
 # -- MusicBrainz release by Apple Music link --------------------------------
@@ -241,15 +213,8 @@ def _slugged_links(store_url: str | None, collection_id: int) -> tuple[str, ...]
 def _mb_lookup(links: list[str]) -> list[str]:
     """Release MBIDs linked from any of `links` (one request). Raises on
     network/server errors so callers don't cache a failure as "none"."""
-    global _mb_last_request
-    wait = _mb_last_request + MB_MIN_INTERVAL - time.monotonic()
-    if wait > 0:
-        time.sleep(wait)
-    try:
-        params = [("resource", link) for link in links] + [("inc", "release-rels"), ("fmt", "json")]
-        resp = requests.get(MB_URL_LOOKUP, params=params, timeout=TIMEOUT, headers=MB_HEADERS)
-    finally:
-        _mb_last_request = time.monotonic()
+    params = [("resource", link) for link in links] + [("inc", "release-rels"), ("fmt", "json")]
+    resp = mbapi.get("url", params)
     if resp.status_code == 404:
         return []  # none of the links is known to MusicBrainz
     resp.raise_for_status()

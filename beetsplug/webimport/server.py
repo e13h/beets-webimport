@@ -4,6 +4,7 @@ import logging
 import os
 import threading
 from pathlib import Path
+from urllib.parse import quote
 
 from flask import Flask, jsonify, request, send_from_directory
 
@@ -11,7 +12,7 @@ from beets import config as beets_config
 from beets import context as beets_context
 from beets.util import syspath
 
-from . import coverart, itunes, library, reimport, snapshot, tags
+from . import coverart, itunes, library, reimport, snapshot, sourceart, tags
 from .grace import GracePeriodManager
 from .queue import InboxWorkerPool, ReviewManager
 from .session import WebImportSession
@@ -322,37 +323,107 @@ def create_app(lib, wi_config, plugin):
             return None
         return target
 
+    def _fetchart_local_opts() -> dict:
+        """fetchart's settings for picking a folder image."""
+        fa = beets_config["fetchart"]
+        try:
+            return {"cover_names": tuple(fa["cover_names"].as_str_seq()), "cautious": fa["cautious"].get(bool)}
+        except Exception:  # noqa: BLE001 -- fetchart not configured: its defaults
+            return {}
+
+    def _apply_art_choice(folder: Path, choice: str) -> None:
+        """Arrange the inbox folder so fetchart picks the chosen art."""
+        opts = _fetchart_local_opts()
+        if choice == "itunes":
+            itunes.save_cover(folder, **opts)
+        elif choice == "embedded":
+            art = sourceart.embedded_art(folder)
+            if not art:
+                raise ValueError("The files have no embedded art.")
+            sourceart.save_as_cover(folder, art["data"], art.get("mime"), **opts)
+        elif choice == "candidate":
+            sourceart.set_aside(sourceart.folder_images(folder, **opts))
+        elif choice != "folder":
+            raise ValueError(f"Unknown art choice {choice!r}")
+
     @app.post("/api/review/<task_id>/decide")
     def api_review_decide(task_id):
         decision = request.get_json(force=True)
-        # iTunes art override: save the art as the folder's cover image
-        # *before* releasing the decision, so fetchart's filesystem source
-        # finds it when the import applies.
-        if decision.get("use_itunes_art") and decision.get("action") in ("select", "asis", "tracks", "albums"):
+        # Art choice: arrange the folder *before* releasing the decision,
+        # so fetchart's filesystem source sees it when the import applies.
+        choice = decision.get("art_choice")
+        if choice and decision.get("action") in ("select", "asis", "tracks", "albums"):
             pr = review_manager.get(task_id)
             folder = _inbox_folder(pr.path) if pr else None
             if folder is None:
-                return jsonify({"ok": False, "error": "iTunes art: not an inbox folder"}), 400
+                return jsonify({"ok": False, "error": "Art choice: not an inbox folder"}), 400
             try:
-                itunes.save_cover(folder)
-            except Exception as exc:  # noqa: BLE001 -- surface, don't apply silently without it
-                log.exception("webimport: saving iTunes art failed")
-                return jsonify({"ok": False, "error": f"Couldn't save iTunes art: {exc}"}), 502
+                _apply_art_choice(folder, choice)
+            except Exception as exc:  # noqa: BLE001 -- surface, don't apply with the wrong art
+                log.exception("webimport: applying art choice %r failed", choice)
+                return jsonify({"ok": False, "error": f"Couldn't use the chosen art: {exc}"}), 502
         ok = review_manager.submit_decision(task_id, decision)
         return jsonify({"ok": ok})
 
-    @app.get("/api/inbox/itunes_art")
+    @app.get("/api/inbox/source_art")
     @_safe
-    def api_inbox_itunes_art():
-        folder = _inbox_folder(request.args.get("path", ""))
+    def api_inbox_source_art():
+        """Art options for an inbox folder besides the candidate's CAA art."""
+        raw = request.args.get("path", "")
+        folder = _inbox_folder(raw)
         if folder is None:
             return jsonify({"error": "not an inbox folder"}), 400
-        info = itunes.art_for_dir(folder)
-        if info is None:
-            return jsonify({"detected": False})
-        if not info.get("error"):
-            info["image_url"] = f"/api/inbox/itunes_art/{info['collection_id']}/image"
-        return jsonify({"detected": True, **info})
+        q = f"path={quote(raw)}"
+        out: dict = {"embedded": None, "folder": None, "itunes": None}
+
+        art = sourceart.embedded_art(folder)
+        if art:
+            out["embedded"] = {k: v for k, v in art.items() if k != "data"}
+            out["embedded"]["image_url"] = f"/api/inbox/source_art/embedded?{q}&s={art['sha1'][:12]}"
+
+        images = sourceart.folder_images(folder, **_fetchart_local_opts())
+        if images:
+            try:
+                info = coverart.image_info(images[0].read_bytes())
+            except OSError:
+                info = {}
+            out["folder"] = {**info, "name": images[0].name, "others": [p.name for p in images[1:]],
+                             "image_url": f"/api/inbox/source_art/folder?{q}&s={info.get('sha1', '')[:12]}"}
+
+        it = itunes.art_for_dir(folder)
+        if it is not None:
+            if not it.get("error"):
+                it["image_url"] = f"/api/inbox/itunes_art/{it['collection_id']}/image"
+            out["itunes"] = it
+        return jsonify(out)
+
+    @app.get("/api/inbox/source_art/<kind>")
+    def api_inbox_source_art_image(kind):
+        folder = _inbox_folder(request.args.get("path", ""))
+        if folder is None:
+            return "", 400
+        if kind == "embedded":
+            art = sourceart.embedded_art(folder)
+            data = art["data"] if art else None
+        elif kind == "folder":
+            images = sourceart.folder_images(folder, **_fetchart_local_opts())
+            data = images[0].read_bytes() if images else None
+        else:
+            return "", 404
+        if not data:
+            return "", 404
+        return app.response_class(data, mimetype=coverart._detect_mime_type(data))
+
+    @app.get("/api/coverart/caa_info")
+    @_safe
+    def api_coverart_caa_info():
+        mbid = request.args.get("mbid", "")
+        if not mbid:
+            return jsonify({"error": "mbid required"}), 400
+        try:
+            return jsonify({"info": coverart.caa_front_info(mbid)})
+        except Exception as exc:  # noqa: BLE001 -- transient: the UI just omits the size
+            return jsonify({"info": None, "unavailable": True, "error": str(exc)})
 
     @app.get("/api/inbox/itunes_art/<int:collection_id>/image")
     def api_inbox_itunes_art_image(collection_id):

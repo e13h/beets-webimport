@@ -437,3 +437,39 @@ def resolve_candidate_art(item_dir: str, release_mbid: str | None,
         "unavailable": unavailable,
         "match": (source_url is not None and resolved_url == source_url),
     }
+
+
+# -- Cover Art Archive image size (for choosing between art sources) ------
+
+_dims_cache: dict[str, tuple[float, dict | None]] = {}
+_dims_lock = threading.Lock()
+
+
+def caa_front_info(mbid: str) -> dict | None:
+    """{width, height, bytes} of the release's full-size CAA front image
+    (what fetchart downloads when no maxwidth is set), or None if it has
+    none. Reads only the first 64 KB: the image header plus the total size
+    from Content-Range. Raises if CAA can't be reached (not cached)."""
+    now = time.monotonic()
+    with _dims_lock:
+        hit = _dims_cache.get(mbid)
+        if hit and now - hit[0] < CAA_CACHE_TTL:
+            return hit[1]
+    images = _caa_front_images(mbid, "release")
+    if images is None:
+        raise ConnectionError("Cover Art Archive unavailable")
+    info = None
+    if images:
+        resp = requests.get(images[0]["image"], headers={"User-Agent": "beets-webimport/0.1", "Range": "bytes=0-65535"},
+                            timeout=20)
+        resp.raise_for_status()
+        dims = _header_dims(resp.content)
+        total = (resp.headers.get("Content-Range") or "").rpartition("/")[2]
+        info = {
+            "width": dims[0] if dims else None,
+            "height": dims[1] if dims else None,
+            "bytes": int(total) if total.isdigit() else len(resp.content),
+        }
+    with _dims_lock:
+        _dims_cache[mbid] = (now, info)
+    return info

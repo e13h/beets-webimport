@@ -158,3 +158,52 @@ def test_apple_match_without_candidates_falls_back_to_search(lib, album_dir, loo
     assert lookups["broad"] == 1
     assert payloads[0]["matched_via"]["fallback"] is True
     assert "attempted_search_id" not in payloads[0]
+
+
+def _album(album_id, media, year):
+    from beets.autotag.hooks import AlbumInfo, TrackInfo
+
+    return AlbumInfo(tracks=[TrackInfo(title="Track", track_id="t-" + album_id)], album="Some Album",
+                     album_id=album_id, artist="X", artist_id="a1", data_source="MusicBrainz",
+                     media=media, year=year)
+
+
+def test_purchase_adds_digital_release_and_lists_it_first(lib, album_dir, lookups, monkeypatch):
+    from beetsplug.webimport import purchase
+
+    broad = [_album("cd-2002", "CD", 2002)]
+    digital = {"dig-2006": _album("dig-2006", "Digital Media", 2006)}
+    monkeypatch.setattr(metadata_plugins, "candidates",
+                        lambda *a, **k: (lookups.__setitem__("broad", lookups["broad"] + 1), iter(broad))[1])
+    monkeypatch.setattr(metadata_plugins, "albums_for_ids",
+                        lambda ids: (lookups["ids"].append(list(ids)), iter([digital[i] for i in ids if i in digital]))[1])
+    def detect_store(items, folder):
+        assert isinstance(folder, str)  # task.paths holds bytes
+        return "amazon"
+
+    monkeypatch.setattr(purchase, "detect_store", detect_store)
+    monkeypatch.setattr(purchase, "album_hints", lambda items: {"album": "Some Album", "artist": "X", "year": 2006, "tracktotal": 11})
+    monkeypatch.setattr(purchase, "digital_release_ids", lambda hints, exclude=(): ["dig-2006"])
+
+    payloads = _run_import(lib, album_dir, None, [{"action": "skip"}])
+    cands = payloads[0]["candidates"]
+    assert [c["album_id"] for c in cands] == ["dig-2006", "cd-2002"]
+    assert [c["index"] for c in cands] == [0, 1]  # indexes follow the new order
+    assert cands[0]["looks_purchased"] and not cands[1]["looks_purchased"]
+    assert payloads[0]["purchase"] == {"store": "amazon", "year": 2006, "added": 1}
+
+
+def test_not_a_purchase_leaves_candidates_alone(lib, album_dir, lookups, monkeypatch):
+    from beetsplug.webimport import purchase
+
+    monkeypatch.setattr(purchase, "detect_store", lambda items, folder: None)
+    payloads = _run_import(lib, album_dir, None, [{"action": "skip"}])
+    assert "purchase" not in payloads[0]
+    assert lookups["ids"] == []
+
+
+def test_user_id_skips_purchase_search(lib, album_dir, lookups, monkeypatch):
+    from beetsplug.webimport import purchase
+
+    monkeypatch.setattr(purchase, "detect_store", lambda items, folder: pytest.fail("not consulted"))
+    _run_import(lib, album_dir, MBID, [{"action": "skip"}])
