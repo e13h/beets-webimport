@@ -8,6 +8,7 @@ from pathlib import Path
 from flask import Flask, jsonify, request, send_from_directory
 
 from beets import config as beets_config
+from beets import context as beets_context
 from beets.util import syspath
 
 from . import coverart, library, reimport, tags
@@ -42,10 +43,24 @@ def create_app(lib, wi_config, plugin):
     used only to register event listeners via its real `listen()` API."""
     app = Flask(__name__, static_folder=None)
 
+    # beets stores paths relative to the music directory and expands them
+    # via a ContextVar that Library() sets only on the thread that opened
+    # it. Request threads and worker-pool threads start with an empty
+    # context, where paths stay relative: art lookups fail and moves or
+    # deletes miss the real files. Bind the music dir on every such thread.
+    # (beets' import pipeline copies the context of the thread calling
+    # session.run(), so binding the pool workers covers its stages too.)
+    def bind_music_dir():
+        beets_context.set_music_dir(lib.directory)
+
+    app.before_request(bind_music_dir)
+
     review_manager = ReviewManager()
     apply_lock = threading.Lock()
     grace = GracePeriodManager(lib, wi_config["grace_period_seconds"].get(int))
-    pool = InboxWorkerPool(wi_config["candidate_search_workers"].get(int))
+    pool = InboxWorkerPool(
+        wi_config["candidate_search_workers"].get(int), initializer=bind_music_dir
+    )
 
     try:
         data_dir = Path(beets_config.config_dir()) / "webimport"

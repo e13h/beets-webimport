@@ -108,8 +108,8 @@ class ReviewManager:
 class InboxWorkerPool:
     """Runs one ImportSession per album path, bounded by max_workers."""
 
-    def __init__(self, max_workers: int = 4):
-        self._executor = ThreadPoolExecutor(max_workers=max_workers)
+    def __init__(self, max_workers: int = 4, initializer=None):
+        self._executor = ThreadPoolExecutor(max_workers=max_workers, initializer=initializer)
         self._futures: dict[str, Any] = {}
 
     def submit(self, path: str, run_fn):
