@@ -386,6 +386,8 @@ button:disabled { opacity: .5; cursor: default; }
 .tree-node .tree-label { grid-column: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree-node .tree-sub { grid-column: 1; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree-node .disc-icon { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
+.tree-node .disc-icon + .disc-icon { grid-column: 3; }
+.tree-node { grid-template-columns: 1fr auto auto; }
 .tree-album { font-weight: 600; margin-bottom: 4px; }
 .tree-track { padding-left: 16px; }
 .tree-disc { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; padding: 8px 8px 2px; }
@@ -448,3 +450,28 @@ button:disabled { opacity: .5; cursor: default; }
   .explorer.show-detail .explorer-panel { display: block; }
   .explorer.show-detail .explorer-back { display: inline-block; }
 }
+
+/* Album/track art in the explorer panel */
+.art-block { display: flex; gap: 14px; align-items: flex-start; margin: 8px 0 4px; flex-wrap: wrap; }
+.art-frame {
+  width: 180px; aspect-ratio: 1; flex: none; border-radius: 8px; overflow: hidden;
+  background: #181a20; border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .5px;
+}
+.art-block.small .art-frame { width: 110px; }
+.art-frame img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.art-frame.art-loading { animation: art-pending 1.2s ease-in-out infinite alternate; }
+.art-meta {
+  display: grid; grid-template-columns: auto 1fr; gap: 4px 12px;
+  margin: 0; font-size: 13px; min-width: 200px; flex: 1;
+}
+.art-meta dt { color: var(--muted); }
+.art-meta dd { margin: 0; word-break: break-word; }
+.art-meta .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.ok-text { color: var(--ok); }
+.warn-text { color: #e8b04a; }
+@media (prefers-reduced-motion: reduce) { .art-frame.art-loading { animation: none; } }
+.id-list { display: inline-flex; flex-direction: column; gap: 2px; }
+.id-line { white-space: nowrap; }
+.id-line a { color: var(--accent); }

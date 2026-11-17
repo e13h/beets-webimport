@@ -365,6 +365,30 @@ def create_app(lib, wi_config, plugin):
             return jsonify({"error": "not found"}), 404
         return jsonify(data)
 
+    @app.get("/api/library/albums/<int:album_id>/artinfo")
+    @_safe
+    def api_library_album_artinfo(album_id):
+        album = lib.get_album(album_id)
+        if album is None:
+            return jsonify({"error": "not found"}), 404
+        return jsonify({"art": coverart.get_album_art_info(album)})
+
+    @app.get("/api/library/items/<int:item_id>/art")
+    def api_library_item_art(item_id):
+        """The image embedded in this track's file (what players read)."""
+        import mediafile
+
+        item = lib.get_item(item_id)
+        if item is None:
+            return "", 404
+        try:
+            data = mediafile.MediaFile(syspath(item.path)).art
+        except Exception:
+            data = None
+        if not data:
+            return "", 404
+        return app.response_class(data, mimetype=coverart._detect_mime_type(data))
+
     @app.get("/api/library/albums/<int:album_id>/art")
     def api_library_album_art(album_id):
         album = lib.get_album(album_id)

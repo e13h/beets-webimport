@@ -158,7 +158,7 @@ def _compare_item_file_tags(item) -> dict:
     import mediafile
 
     out = {"id": item.id, "mismatches": [], "unsupported": [], "error": None,
-           "modified_outside_beets": False}
+           "modified_outside_beets": False, "art": None}
     path = syspath(item.path)
     try:
         file_item = Item.from_path(path)
@@ -166,6 +166,15 @@ def _compare_item_file_tags(item) -> dict:
     except Exception as exc:  # noqa: BLE001 -- surface any read failure per track
         out["error"] = str(exc) or exc.__class__.__name__
         return out
+
+    try:
+        art = mf.art
+    except Exception:  # noqa: BLE001 -- unreadable art shouldn't hide the tag diff
+        art = None
+    if art:
+        from .coverart import image_info
+
+        out["art"] = image_info(art)
 
     try:
         # beets records the file's mtime when it last read/wrote it.

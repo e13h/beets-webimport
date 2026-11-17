@@ -39,6 +39,14 @@ const EXPLORER_LINKS = {
   mb_workid: "https://musicbrainz.org/work/",
   discogs_albumid: "https://www.discogs.com/release/",
   acoustid_id: "https://acoustid.org/track/",
+  // Multi-valued: lists of MusicBrainz artist IDs, one link per ID.
+  mb_artistids: "https://musicbrainz.org/artist/",
+  mb_albumartistids: "https://musicbrainz.org/artist/",
+  artists_ids: "https://musicbrainz.org/artist/",
+  composers_ids: "https://musicbrainz.org/artist/",
+  lyricists_ids: "https://musicbrainz.org/artist/",
+  arrangers_ids: "https://musicbrainz.org/artist/",
+  remixers_ids: "https://musicbrainz.org/artist/",
 };
 const EXPLORER_COPYABLE = new Set(["path", "artpath", ...Object.keys(EXPLORER_LINKS), "isrc", "barcode", "catalognum"]);
 const EXPLORER_LONG = 140; // chars before a value is collapsed
@@ -73,6 +81,13 @@ function explorerFormat(field, v) {
   return String(v);
 }
 
+function explorerBytes(n) {
+  if (n == null) return "";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
 function explorerSame(a, b) {
   return JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
     || (explorerIsEmpty("", a) && explorerIsEmpty("", b));
@@ -81,6 +96,8 @@ function explorerSame(a, b) {
 async function renderAlbumExplorer(host, albumId) {
   host.innerHTML = '<div class="muted"><span class="spinner"></span> Loading metadata…</div>';
   let data;
+  // Art details need one file read; fetch alongside, render when it lands.
+  const artInfoPromise = api(`/api/library/albums/${albumId}/artinfo`).catch((err) => ({ error: err.message }));
   try {
     data = await api(`/api/library/albums/${albumId}/explore`);
   } catch (err) {
@@ -96,6 +113,7 @@ async function renderAlbumExplorer(host, albumId) {
     filter: "",
     showEmpty: false,
     fileTags: null, // null = loading, {error} or Map(trackId -> result)
+    artInfo: undefined, // undefined = loading, {art: {...}|null} or {error}
   };
 
   host.innerHTML = `
@@ -130,6 +148,15 @@ async function renderAlbumExplorer(host, albumId) {
   function trackFile(trackId) {
     return state.fileTags instanceof Map ? state.fileTags.get(trackId) : null;
   }
+  function trackArtIssue(trackId) {
+    const r = trackFile(trackId);
+    const albumArt = state.artInfo?.art;
+    if (!r || r.error || !albumArt) return null;
+    if (!r.art) return "No embedded art";
+    if (r.art.sha1 !== albumArt.sha1) return "Embedded art differs from the album art";
+    return null;
+  }
+
   function trackIssueCount(trackId) {
     const r = trackFile(trackId);
     if (!r) return 0;
@@ -145,13 +172,13 @@ async function renderAlbumExplorer(host, albumId) {
       discs.get(d).push(t);
     });
     const multiDisc = discs.size > 1;
-    const totalIssues = data.tracks.reduce((n, t) => n + (trackIssueCount(t.id) ? 1 : 0), 0);
+    const totalIssues = data.tracks.reduce((n, t) => n + (trackIssueCount(t.id) || trackArtIssue(t.id) ? 1 : 0), 0);
     const a = data.album.fields;
 
     let html = `<button class="tree-node tree-album ${state.selected.kind === "album" ? "selected" : ""}" data-node="album">
         <span class="tree-label">${escapeHtml(a.album || "(untitled album)")}</span>
         <span class="tree-sub muted">${escapeHtml(a.albumartist || "")}${a.year ? " · " + a.year : ""}</span>
-        ${totalIssues ? `<span class="disc-icon" title="${totalIssues} track(s) have file tags that differ from beets">⚠ ${totalIssues}</span>` : ""}
+        ${totalIssues ? `<span class="disc-icon" title="${totalIssues} track(s) have file tags or embedded art that differ">⚠ ${totalIssues}</span>` : ""}
       </button>`;
     for (const [disc, tracks] of [...discs.entries()].sort((x, y) => x[0] - y[0])) {
       if (multiDisc) html += `<div class="tree-disc muted">Disc ${disc}</div>`;
@@ -163,6 +190,8 @@ async function renderAlbumExplorer(host, albumId) {
         let icon = "";
         if (r && r.error) icon = `<span class="disc-icon error" title="Couldn't read file: ${escapeHtml(r.error)}">✕</span>`;
         else if (r && r.mismatches.length) icon = `<span class="disc-icon" title="${r.mismatches.length} file tag(s) differ from beets">⚠ ${r.mismatches.length}</span>`;
+        const artIssue = trackArtIssue(t.id);
+        if (artIssue) icon += `<span class="disc-icon" title="${escapeHtml(artIssue)}">⚠ art</span>`;
         html += `<button class="tree-node tree-track ${sel ? "selected" : ""}" data-node="${t.id}">
             <span class="tree-label">${f.track ? String(f.track).padStart(2, "0") + " " : ""}${escapeHtml(f.title || "(untitled)")}</span>
             <span class="tree-sub muted">${escapeHtml(file)}</span>
@@ -235,6 +264,12 @@ async function renderAlbumExplorer(host, albumId) {
   }
 
   function renderValue(field, v) {
+    if (EXPLORER_LINKS[field] && Array.isArray(v) && v.length) {
+      // One ID per line, each with its own link and copy button.
+      return `<span class="id-list">${v.map((id) => `<span class="id-line">
+          <a href="${EXPLORER_LINKS[field]}${encodeURIComponent(id)}" target="_blank" rel="noopener">${escapeHtml(id)}</a><button class="link-btn" data-copy="${escapeHtml(id)}" title="Copy">copy</button>
+        </span>`).join("")}</span>`;
+    }
     const text = explorerFormat(field, v);
     const raw = typeof v === "object" ? JSON.stringify(v) : String(v ?? "");
     let inner;
@@ -277,6 +312,7 @@ async function renderAlbumExplorer(host, albumId) {
         ${r?.error ? `<p class="explorer-warn">✕ Couldn't read file tags: ${escapeHtml(r.error)}</p>` : ""}`;
     }
     header += fileTagSummary();
+    header += state.selected.kind === "album" ? albumArtBlock() : trackArtBlock(node.id);
 
     let html = header;
     let shown = 0;
@@ -326,6 +362,85 @@ async function renderAlbumExplorer(host, albumId) {
     });
   }
 
+  function artMeta(info) {
+    const rows = [];
+    if (info.width && info.height) rows.push(["Dimensions", `${info.width} × ${info.height} px`]);
+    rows.push(["File size", explorerBytes(info.bytes)]);
+    rows.push(["Format", (info.mime || "").replace("image/", "").toUpperCase()]);
+    return rows;
+  }
+
+  function metaList(rows) {
+    return `<dl class="art-meta">${rows.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${v}</dd>`).join("")}</dl>`;
+  }
+
+  function albumArtBlock() {
+    if (state.artInfo === undefined) {
+      return `<div class="art-block"><div class="art-frame art-loading"></div><p class="muted">Loading art…</p></div>`;
+    }
+    if (state.artInfo.error) return `<p class="explorer-warn">Couldn't load art details: ${escapeHtml(state.artInfo.error)}</p>`;
+    const info = state.artInfo.art;
+    if (!info) {
+      return `<div class="art-block"><div class="art-frame art-none">No art</div>
+        ${metaList([["Source", "No art file and no embedded art in any track"]])}</div>`;
+    }
+    const rows = artMeta(info).map(([k, v]) => [k, escapeHtml(v)]);
+    if (info.source === "file") {
+      rows.push(["Source", `Art file <span class="mono">${escapeHtml(info.path)}</span> <button class="link-btn" data-copy="${escapeHtml(info.path)}">copy</button>`]);
+    } else {
+      const t = tracksById.get(info.track_id);
+      rows.push(["Source", `Embedded in track files (read from track ${escapeHtml(String(t?.fields.track || "?"))})`]);
+    }
+    rows.push(["Tracks", trackArtSummary(info)]);
+    const src = `/api/library/albums/${albumId}/art`;
+    return `<div class="art-block">
+        <a class="art-frame" href="${src}" target="_blank" rel="noopener" title="Open full size"><img src="${src}" alt="Album art" /></a>
+        ${metaList(rows)}
+      </div>`;
+  }
+
+  function trackArtSummary(albumArt) {
+    if (state.fileTags === null) return '<span class="muted">checking track files…</span>';
+    if (!(state.fileTags instanceof Map)) return '<span class="muted">unknown</span>';
+    let same = 0, different = 0, none = 0;
+    for (const t of data.tracks) {
+      const art = trackFile(t.id)?.art;
+      if (!art) none++;
+      else if (art.sha1 === albumArt.sha1) same++;
+      else different++;
+    }
+    const n = data.tracks.length;
+    if (same === n) return `<span class="ok-text">✓ All ${n} tracks embed this image</span>`;
+    const parts = [];
+    const s = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+    if (same) parts.push(s(same, "embeds this image", "embed this image"));
+    if (different) parts.push(`⚠ ${s(different, "embeds a different image", "embed a different image")}`);
+    if (none) parts.push(`⚠ ${s(none, "has no embedded art", "have no embedded art")}`);
+    return `<span class="warn-text">${parts.join(" · ")}</span>`;
+  }
+
+  function trackArtBlock(trackId) {
+    if (state.fileTags === null) return "";
+    const r = trackFile(trackId);
+    if (!r || r.error) return "";
+    const albumArt = state.artInfo?.art;
+    if (!r.art) {
+      return `<div class="art-block small"><div class="art-frame art-none">No art</div>
+        ${metaList([["Embedded art", `<span class="warn-text">⚠ This file has no embedded art</span>`]])}</div>`;
+    }
+    const rows = artMeta(r.art).map(([k, v]) => [k, escapeHtml(v)]);
+    if (albumArt) {
+      rows.push(["Album art", r.art.sha1 === albumArt.sha1
+        ? '<span class="ok-text">✓ Same image as the album art</span>'
+        : '<span class="warn-text">⚠ Different from the album art</span>']);
+    }
+    const src = `/api/library/items/${trackId}/art`;
+    return `<div class="art-block small">
+        <a class="art-frame" href="${src}" target="_blank" rel="noopener" title="Open full size"><img src="${src}" alt="Embedded art" /></a>
+        ${metaList(rows)}
+      </div>`;
+  }
+
   function fileTagSummary() {
     if (state.fileTags === null) return `<p class="muted explorer-note"><span class="spinner"></span> Checking file tags…</p>`;
     if (state.fileTags.error) return `<p class="explorer-warn">Couldn't check file tags: ${escapeHtml(state.fileTags.error)}</p>`;
@@ -344,6 +459,11 @@ async function renderAlbumExplorer(host, albumId) {
 
   renderTree();
   renderPanel();
+
+  artInfoPromise.then((info) => {
+    state.artInfo = info;
+    if (host.isConnected) { renderTree(); renderPanel(); }
+  });
 
   try {
     const ft = await api(`/api/library/albums/${albumId}/filetags`);

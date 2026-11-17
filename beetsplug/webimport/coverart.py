@@ -147,13 +147,98 @@ def _local_cover_file(item_dir: Path) -> Path | None:
 
 
 def _image_dims(data: bytes) -> tuple[int, int] | None:
-    if not HAVE_PIL:
-        return None
+    if HAVE_PIL:
+        try:
+            with Image.open(io.BytesIO(data)) as im:
+                return im.width, im.height
+        except Exception:
+            pass
+    return _header_dims(data)
+
+
+def _header_dims(data: bytes) -> tuple[int, int] | None:
+    """Image dimensions from the file header alone (JPEG/PNG/GIF/WebP), so
+    the explorer can report art size without Pillow installed."""
+    import struct
+
     try:
-        with Image.open(io.BytesIO(data)) as im:
-            return im.width, im.height
-    except Exception:
-        return None
+        if data.startswith(b"\x89PNG\r\n\x1a\n") and data[12:16] == b"IHDR":
+            return struct.unpack(">II", data[16:24])
+        if data[:6] in (b"GIF87a", b"GIF89a"):
+            return struct.unpack("<HH", data[6:10])
+        if data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+            kind = data[12:16]
+            if kind == b"VP8X":
+                w = int.from_bytes(data[24:27], "little") + 1
+                h = int.from_bytes(data[27:30], "little") + 1
+                return w, h
+            if kind == b"VP8 ":
+                w, h = struct.unpack("<HH", data[26:30])
+                return w & 0x3FFF, h & 0x3FFF
+            if kind == b"VP8L":
+                b = int.from_bytes(data[21:25], "little")
+                return (b & 0x3FFF) + 1, ((b >> 14) & 0x3FFF) + 1
+        if data.startswith(b"\xff\xd8"):
+            # Walk JPEG segments to the first start-of-frame marker.
+            i = 2
+            while i + 9 < len(data):
+                if data[i] != 0xFF:
+                    i += 1
+                    continue
+                marker = data[i + 1]
+                if marker in (0xD8, 0x01) or 0xD0 <= marker <= 0xD7 or marker == 0xFF:
+                    i += 1 if marker == 0xFF else 2
+                    continue
+                (length,) = struct.unpack(">H", data[i + 2:i + 4])
+                if marker in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7,
+                              0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
+                    h, w = struct.unpack(">HH", data[i + 5:i + 9])
+                    return w, h
+                i += 2 + length
+    except (struct.error, IndexError):
+        pass
+    return None
+
+
+def image_info(data: bytes) -> dict:
+    """Size/format details for an image, for display. Width/height are
+    None if the header can't be parsed."""
+    import hashlib
+
+    dims = _image_dims(data)
+    return {
+        "width": dims[0] if dims else None,
+        "height": dims[1] if dims else None,
+        "bytes": len(data),
+        "mime": _detect_mime_type(data),
+        "sha1": hashlib.sha1(data).hexdigest(),
+    }
+
+
+def get_album_art_info(album) -> dict | None:
+    """Where the album's art comes from (same precedence as
+    get_album_art_data: art file, else the first track with embedded
+    art) plus its image details. None if the album has no art."""
+    from beets.util import syspath
+    import mediafile
+
+    if album.artpath:
+        art_path = Path(syspath(album.artpath))
+        try:
+            data = art_path.read_bytes()
+        except OSError:
+            data = None
+        if data:
+            return {"source": "file", "path": str(art_path), **image_info(data)}
+
+    for item in sorted(album.items(), key=lambda i: (i.disc or 1, i.track or 0, i.id)):
+        try:
+            data = mediafile.MediaFile(syspath(item.path)).art
+        except Exception:
+            continue
+        if data:
+            return {"source": "embedded", "track_id": item.id, **image_info(data)}
+    return None
 
 
 def _passes_filters(data: bytes, minwidth: int, enforce_ratio) -> bool:
