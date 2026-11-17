@@ -48,7 +48,7 @@ import:
   copy: yes
   move: no
   resume: ask
-  incremental: yes
+  incremental: no # yes silently skips re-imports after an undo; revisit with smarter caching
   quiet_fallback: skip
   detail: yes
   timid: no
@@ -56,6 +56,9 @@ import:
   log: /config/beet.log
   set_fields:
     navidrome_library: unassigned
+
+chroma:
+  auto: no # don't fingerprint on import (~9s/album); `beet fingerprint` still works manually
 
 embedart:
   auto: yes
