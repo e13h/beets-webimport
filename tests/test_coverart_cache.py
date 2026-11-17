@@ -68,3 +68,16 @@ def test_unreachable_is_not_cached(monkeypatch):
     assert first["unavailable"]
     second = coverart.resolve_candidate_art("/nonexistent", MBID, None, CFG)
     assert second["source_url"] == "http://x/500.jpg" and not second["unavailable"]
+
+
+def test_mapping_style_sources_resolve(monkeypatch):
+    """fetchart sources written as YAML mappings (`- coverart: release`,
+    as in the homelab config) arrive as one-key dicts."""
+    from collections import OrderedDict
+
+    calls = []
+    monkeypatch.setattr(coverart.requests, "get", _fake_get([FakeResp(200, FRONT)], calls))
+    cfg = {"sources": ["filesystem", OrderedDict({"coverart": "release"}), OrderedDict({"coverart": "releasegroup"})]}
+    r = coverart.resolve_candidate_art("/nonexistent", MBID, None, cfg)
+    assert r["resolved_source"] == "coverart:release"
+    assert r["match"]

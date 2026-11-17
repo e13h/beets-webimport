@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import io
 import threading
+from collections.abc import Mapping
 import time
 from pathlib import Path
 
@@ -343,6 +344,10 @@ def _parse_source(src) -> tuple[str, str | None]:
     criterion (e.g. "coverart:release"). confuse also parses mapping-style
     entries into (key, value) pairs. Normalize both to (name, criterion).
     """
+    if isinstance(src, Mapping) and len(src) == 1:
+        # YAML mapping entries (`- coverart: release`) arrive as one-key dicts.
+        (name, criterion), = src.items()
+        return str(name).strip(), str(criterion).strip()
     if isinstance(src, (list, tuple)) and len(src) == 2:
         name, criterion = src
         return str(name).strip(), str(criterion).strip()
