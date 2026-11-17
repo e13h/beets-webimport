@@ -89,6 +89,9 @@ function explorerBytes(n) {
 }
 
 function explorerSame(a, b) {
+  // Tag readers report flags like `comp` as true/false; beets stores 1/0.
+  if (typeof a === "boolean") a = Number(a);
+  if (typeof b === "boolean") b = Number(b);
   return JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
     || (explorerIsEmpty("", a) && explorerIsEmpty("", b));
 }
@@ -107,11 +110,14 @@ async function renderAlbumExplorer(host, albumId) {
 
   const itemKeys = new Set(data.item_keys);
   const readonly = new Set(data.readonly_fields);
+  const tagFields = new Set(data.tag_fields || []);
+  const withOriginal = data.tracks.filter((t) => t.original);
   const tracksById = new Map(data.tracks.map((t) => [t.id, t]));
   const state = {
     selected: { kind: "album" },
     filter: "",
     showEmpty: false,
+    onlyChanged: false,
     fileTags: null, // null = loading, {error} or Map(trackId -> result)
     artInfo: undefined, // undefined = loading, {art: {...}|null} or {error}
   };
@@ -123,7 +129,8 @@ async function renderAlbumExplorer(host, albumId) {
         <button class="secondary explorer-back">&larr; Tracks</button>
         <div class="explorer-tools">
           <input type="search" placeholder="Filter fields…" class="explorer-filter" />
-          <label class="explorer-empty-toggle"><input type="checkbox" /> Show empty</label>
+          <label class="explorer-empty-toggle"><input type="checkbox" data-toggle="empty" /> Show empty</label>
+          <label class="explorer-empty-toggle"><input type="checkbox" data-toggle="changed" /> Only changed by import</label>
         </div>
         <div class="explorer-body"></div>
       </section>
@@ -136,8 +143,12 @@ async function renderAlbumExplorer(host, albumId) {
     state.filter = e.target.value.trim().toLowerCase();
     renderPanel();
   });
-  host.querySelector(".explorer-empty-toggle input").addEventListener("change", (e) => {
+  host.querySelector('[data-toggle="empty"]').addEventListener("change", (e) => {
     state.showEmpty = e.target.checked;
+    renderPanel();
+  });
+  host.querySelector('[data-toggle="changed"]').addEventListener("change", (e) => {
+    state.onlyChanged = e.target.checked;
     renderPanel();
   });
   host.querySelector(".explorer-back").addEventListener("click", () => {
@@ -217,11 +228,37 @@ async function renderAlbumExplorer(host, albumId) {
   }
 
   // -- panel -------------------------------------------------------------
+  function originalValue(track, field) {
+    return track.original ? (track.original.fields[field] ?? null) : undefined;
+  }
+
+  function changedBadge(lines, wasEmpty) {
+    const label = wasEmpty ? "added by import" : "changed by import";
+    return `<span class="field-badge changed" title="${escapeHtml("Before import:\n" + lines.join("\n"))}">${label}</span>`;
+  }
+
   function fieldAnnotations(field, node) {
-    // Returns {cls, badges[], detail?} for one field row.
-    const out = { cls: "", badges: [] };
+    // Returns {cls, badges[], changed} for one field row.
+    const out = { cls: "", badges: [], changed: false };
     if (state.selected.kind === "album") {
-      if (itemKeys.has(field)) {
+      if (itemKeys.has(field) && tagFields.has(field) && withOriginal.length) {
+        const albumVal = node.fields[field];
+        const before = new Map(); // formatted original -> count
+        let changed = false;
+        for (const t of withOriginal) {
+          const orig = originalValue(t, field);
+          if (!explorerSame(orig, albumVal)) changed = true;
+          const k = explorerFormat(field, orig) || "(empty)";
+          before.set(k, (before.get(k) || 0) + 1);
+        }
+        if (changed) {
+          out.changed = true;
+          const lines = [...before].map(([v, n]) => (before.size > 1 ? `${v} (${n} tracks)` : v));
+          const wasEmpty = before.size === 1 && before.has("(empty)");
+          out.badges.push(changedBadge(lines, wasEmpty));
+        }
+      }
+      if (itemKeys.has(field) && !readonly.has(field)) {
         const albumVal = node.fields[field];
         const differing = data.tracks.filter((t) => !explorerSame(t.fields[field], albumVal));
         if (differing.length) {
@@ -242,7 +279,14 @@ async function renderAlbumExplorer(host, albumId) {
       }
     } else {
       const track = tracksById.get(state.selected.id);
-      if (itemKeys.has(field)) {
+      if (track.original && tagFields.has(field)) {
+        const orig = originalValue(track, field);
+        if (!explorerSame(orig, track.fields[field])) {
+          out.changed = true;
+          out.badges.push(changedBadge([explorerFormat(field, orig) || "(empty)"], explorerIsEmpty(field, orig)));
+        }
+      }
+      if (itemKeys.has(field) && !readonly.has(field)) {
         if (explorerSame(track.fields[field], data.album.fields[field])) out.cls = "inherited";
         else out.badges.push(`<span class="field-badge override" title="Album value: ${escapeHtml(explorerFormat(field, data.album.fields[field]) || "(empty)")}">differs from album</span>`);
       }
@@ -304,10 +348,16 @@ async function renderAlbumExplorer(host, albumId) {
     let header;
     if (state.selected.kind === "album") {
       header = `<h4>Album</h4><p class="muted explorer-note">Album fields are copied onto every track and written into each file. “varies” means some tracks hold a different value.</p>`;
+      header += withOriginal.length
+        ? `<p class="muted explorer-note">Original tags recorded for ${withOriginal.length} of ${data.tracks.length} tracks; “changed by import” compares against them.</p>`
+        : `<p class="muted explorer-note">No original tags recorded (album wasn't imported through webimport since snapshots were added).</p>`;
     } else {
       const r = trackFile(node.id);
       header = `<h4>Track ${escapeHtml(String(fields.track || ""))}: ${escapeHtml(fields.title || "")}</h4>
         <p class="muted explorer-note">Dimmed fields match the album.</p>
+        ${node.original
+          ? `<p class="muted explorer-note">Original tags captured ${escapeHtml(new Date(node.original.captured_at).toLocaleString())} from <span class="mono">${escapeHtml(node.original.source_path || "")}</span></p>`
+          : `<p class="muted explorer-note">No original tags recorded for this track.</p>`}
         ${r?.modified_outside_beets ? `<p class="explorer-warn">⚠ This file was modified after beets last read or wrote it.</p>` : ""}
         ${r?.error ? `<p class="explorer-warn">✕ Couldn't read file tags: ${escapeHtml(r.error)}</p>` : ""}`;
     }
@@ -318,6 +368,7 @@ async function renderAlbumExplorer(host, albumId) {
     let shown = 0;
     for (const [name, list] of groups) {
       const rows = list
+        .filter((f) => !state.onlyChanged || fieldAnnotations(f, node).changed)
         .filter((f) => state.showEmpty || !explorerIsEmpty(f, fields[f]) || fieldAnnotations(f, node).badges.length)
         .filter((f) => !state.filter || f.toLowerCase().includes(state.filter)
           || explorerFormat(f, fields[f]).toLowerCase().includes(state.filter))
@@ -331,6 +382,20 @@ async function renderAlbumExplorer(host, albumId) {
             </div>`;
         });
       if (rows.length) html += `<h5 class="field-group">${escapeHtml(name)}</h5>${rows.join("")}`;
+    }
+    if (state.selected.kind === "track" && node.original && !state.onlyChanged) {
+      const other = Object.entries(node.original.other || {})
+        .filter(([k, v]) => !state.filter || k.toLowerCase().includes(state.filter)
+          || String(v).toLowerCase().includes(state.filter));
+      if (other.length) {
+        html += `<h5 class="field-group">Original file — tags beets doesn't track</h5>` + other.map(([k, v]) => {
+          shown++;
+          return `<div class="field-row original-only">
+              <span class="field-name">${escapeHtml(k)}</span>
+              <span class="field-val-wrap">${renderValue("", v)}</span>
+            </div>`;
+        }).join("");
+      }
     }
     if (!shown) html += `<p class="muted">No fields match.</p>`;
     bodyEl.innerHTML = html;

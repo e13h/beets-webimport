@@ -11,7 +11,7 @@ from beets import config as beets_config
 from beets import context as beets_context
 from beets.util import syspath
 
-from . import coverart, library, reimport, tags
+from . import coverart, library, reimport, snapshot, tags
 from .grace import GracePeriodManager
 from .queue import InboxWorkerPool, ReviewManager
 from .session import WebImportSession
@@ -113,6 +113,7 @@ def create_app(lib, wi_config, plugin):
             is_staging_bin=bool(inbox_path and "_grouped" in str(inbox_path)),
         )
 
+    snapshot.register(plugin.register_listener)
     plugin.register_listener("album_imported", _on_album_imported)
     plugin.register_listener("item_imported", _on_item_imported)
 

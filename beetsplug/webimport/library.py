@@ -109,18 +109,25 @@ def get_album_explorer(lib, album_id: int) -> dict | None:
     that beets also copies onto every track (so the UI can show where a
     track differs from its album); `custom_fields` are flexible
     attributes (not part of beets' fixed schema)."""
-    from beets.library import Album
+    from beets.library import Album, Item
 
     album = lib.get_album(album_id)
     if album is None:
         return None
     items = sorted(album.items(), key=lambda i: (i.disc or 1, i.track or 0, i.id))
 
+    from . import snapshot
+
     def node(obj):
+        fields = _jsonable_fields(obj)
+        # The original-tag snapshot is shown as its own layer, not as a
+        # giant JSON string among the custom fields.
+        fields.pop(snapshot.SNAPSHOT_FIELD, None)
         return {
             "id": obj.id,
-            "fields": _jsonable_fields(obj),
-            "custom_fields": sorted(set(obj.keys()) - set(obj._fields)),
+            "fields": fields,
+            "custom_fields": sorted(set(fields) - set(obj._fields)),
+            "original": snapshot.load(obj),
         }
 
     return {
@@ -128,6 +135,8 @@ def get_album_explorer(lib, album_id: int) -> dict | None:
         "tracks": [node(i) for i in items],
         "item_keys": sorted(Album.item_keys),
         "readonly_fields": list(READONLY_FIELDS),
+        # Fields that are file tags (what an original-tag snapshot records).
+        "tag_fields": sorted(Item._media_fields - snapshot._NON_TAG_FIELDS - set(READONLY_FIELDS)),
     }
 
 
@@ -156,6 +165,8 @@ def _compare_item_file_tags(item) -> dict:
     never match and aren't a sign of anything wrong."""
     from beets.library import Item
     import mediafile
+
+    from .snapshot import media_field_styles
 
     out = {"id": item.id, "mismatches": [], "unsupported": [], "error": None,
            "modified_outside_beets": False, "art": None}
@@ -189,8 +200,8 @@ def _compare_item_file_tags(item) -> dict:
         file_value = file_item.get(field)
         if _same(db_value, file_value):
             continue
-        descriptor = getattr(mediafile.MediaFile, field, None)
-        if isinstance(descriptor, mediafile.MediaField) and not any(descriptor.styles(mf.mgfile)):
+        styles = media_field_styles(field, mf.mgfile)
+        if styles is not None and not styles:
             if not _empty(db_value):
                 out["unsupported"].append(field)
             continue

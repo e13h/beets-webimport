@@ -475,3 +475,5 @@ button:disabled { opacity: .5; cursor: default; }
 .id-list { display: inline-flex; flex-direction: column; gap: 2px; }
 .id-line { white-space: nowrap; }
 .id-line a { color: var(--accent); }
+.field-badge.changed { background: rgba(76,175,125,.15); color: #8fd4b0; }
+.explorer-note .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; word-break: break-all; }
