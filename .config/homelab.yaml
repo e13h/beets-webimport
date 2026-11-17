@@ -78,7 +78,7 @@ replaygain:
   command: mp3gain
 
 scrub:
-  auto: yes
+  auto: no # keep tags beets does not manage (iTunes IDs, gapless iTunSMPB, Sound Check, rtng); `beet scrub` still works manually
 
 replace:
   '^\.': _
