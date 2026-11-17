@@ -3,11 +3,11 @@
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
+// Safe for both element content and quoted attribute values.
+const HTML_ESCAPES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
 function escapeHtml(str) {
-  if (!str) return "";
-  const div = document.createElement("div");
-  div.textContent = str;
-  return div.innerHTML;
+  if (str === null || str === undefined || str === "") return "";
+  return String(str).replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]);
 }
 
 // -- Toast notifications ------------------------------------------------
@@ -968,8 +968,7 @@ async function openAlbumDetail(albumId) {
       <button data-save-album>Save (auto-move if path changes)</button>
       <button class="secondary" data-reimport>Reimport…</button>
     </div>
-    <h4>Tracks</h4>
-    <div data-tracks></div>`;
+    <div data-explorer></div>`;
 
   const saveAlbumWithConflict = async (conflictResolution = null) => {
     const value = container.querySelector('[data-field="navidrome_library"]').value;
@@ -1006,18 +1005,10 @@ async function openAlbumDetail(albumId) {
     openReimport([albumId]);
   });
 
-  const tracksEl = container.querySelector("[data-tracks]");
-  detail.tracks.forEach((t) => {
-    const row = document.createElement("div");
-    row.className = "card grabbable";
-    row.innerHTML = `${escapeHtml(t.track ? String(t.track) : "")}. ${escapeHtml(t.title)}`;
-    attachLongPress(row, () => [
-      { label: "Apply tag…", onClick: () => promptApplyTag("item", t.id) },
-    ]);
-    tracksEl.appendChild(row);
-  });
+  renderAlbumExplorer(container.querySelector("[data-explorer]"), albumId);
 
   var backdrop = openModal(container);
+  container.parentElement.classList.add("modal-wide");
 }
 
 async function openReimport(albumIds) {

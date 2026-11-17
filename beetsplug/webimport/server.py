@@ -347,6 +347,24 @@ def create_app(lib, wi_config, plugin):
             return jsonify({"error": "not found"}), 404
         return jsonify(detail)
 
+    @app.get("/api/library/albums/<int:album_id>/explore")
+    @_safe
+    def api_library_album_explore(album_id):
+        data = library.get_album_explorer(lib, album_id)
+        if data is None:
+            return jsonify({"error": "not found"}), 404
+        return jsonify(data)
+
+    @app.get("/api/library/albums/<int:album_id>/filetags")
+    @_safe
+    def api_library_album_filetags(album_id):
+        """Diff of beets DB vs on-disk tags for each track (one file read
+        per track). Fetched separately so the explorer renders first."""
+        data = library.compare_album_file_tags(lib, album_id)
+        if data is None:
+            return jsonify({"error": "not found"}), 404
+        return jsonify(data)
+
     @app.get("/api/library/albums/<int:album_id>/art")
     def api_library_album_art(album_id):
         album = lib.get_album(album_id)

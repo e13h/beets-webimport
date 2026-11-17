@@ -11,3 +11,14 @@
 - [ ] Supports adding and editing arbitrary extensible custom fields (flexible attributes) on the album.
 - [ ] Automatically triggers file relocation if any edited field affects the path template (Move-on-Field-Change, per Story 40).
 - [ ] Re-renders album details or refreshes the library view upon successful save.
+
+## Comments
+
+**2026-11-17 — viewing half done.** The read-only metadata explorer
+(see 30) now displays every album field, flexible attributes included,
+and marks fields where tracks differ ("varies") or where file tags differ
+from the DB. Remaining scope: **editing**, built into the explorer's
+field rows. Path-affecting edits must follow ADR-0011 (Two-Phase Edit,
+navidrome-safe-lifecycle ticket 03), which supersedes the
+Move-on-Field-Change criterion above.
+
