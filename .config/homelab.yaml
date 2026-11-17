@@ -74,6 +74,9 @@ embedart:
   remove_art_file: yes
 
 fetchart:
+  # Import-time art is chosen in webimport's review and set by webimport
+  # (embedart then embeds it). `beet fetchart` still works for manual use.
+  auto: no
   minwidth: 0
   enforce_ratio: no
   sources:
