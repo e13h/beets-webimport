@@ -11,7 +11,7 @@ from beets import config as beets_config
 from beets import context as beets_context
 from beets.util import syspath
 
-from . import coverart, library, reimport, snapshot, tags
+from . import coverart, itunes, library, reimport, snapshot, tags
 from .grace import GracePeriodManager
 from .queue import InboxWorkerPool, ReviewManager
 from .session import WebImportSession
@@ -301,11 +301,54 @@ def create_app(lib, wi_config, plugin):
             return jsonify({"error": "not found"}), 404
         return jsonify({"task_id": task_id, "kind": pr.kind, "path": pr.path, "payload": pr.payload})
 
+    def _inbox_folder(raw_path: str) -> Path | None:
+        """Resolve `raw_path` to a directory inside the inbox, else None."""
+        if not inbox_dir or not raw_path:
+            return None
+        base = Path(inbox_dir).resolve()
+        target = Path(raw_path).resolve()
+        if target == base or base not in target.parents or not target.is_dir():
+            return None
+        return target
+
     @app.post("/api/review/<task_id>/decide")
     def api_review_decide(task_id):
         decision = request.get_json(force=True)
+        # iTunes art override: save the art as the folder's cover image
+        # *before* releasing the decision, so fetchart's filesystem source
+        # finds it when the import applies.
+        if decision.get("use_itunes_art") and decision.get("action") in ("select", "asis", "tracks", "albums"):
+            pr = review_manager.get(task_id)
+            folder = _inbox_folder(pr.path) if pr else None
+            if folder is None:
+                return jsonify({"ok": False, "error": "iTunes art: not an inbox folder"}), 400
+            try:
+                itunes.save_cover(folder)
+            except Exception as exc:  # noqa: BLE001 -- surface, don't apply silently without it
+                log.exception("webimport: saving iTunes art failed")
+                return jsonify({"ok": False, "error": f"Couldn't save iTunes art: {exc}"}), 502
         ok = review_manager.submit_decision(task_id, decision)
         return jsonify({"ok": ok})
+
+    @app.get("/api/inbox/itunes_art")
+    @_safe
+    def api_inbox_itunes_art():
+        folder = _inbox_folder(request.args.get("path", ""))
+        if folder is None:
+            return jsonify({"error": "not an inbox folder"}), 400
+        info = itunes.art_for_dir(folder)
+        if info is None:
+            return jsonify({"detected": False})
+        if not info.get("error"):
+            info["image_url"] = f"/api/inbox/itunes_art/{info['collection_id']}/image"
+        return jsonify({"detected": True, **info})
+
+    @app.get("/api/inbox/itunes_art/<int:collection_id>/image")
+    def api_inbox_itunes_art_image(collection_id):
+        data = itunes.image_for_collection(collection_id)
+        if not data:
+            return "", 404
+        return app.response_class(data, mimetype=coverart._detect_mime_type(data))
 
     # -- cover art (lazy, per focused candidate) -------------------------
     @app.post("/api/coverart/resolve")

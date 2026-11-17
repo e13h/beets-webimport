@@ -477,8 +477,13 @@ async function openReview(pr) {
 
   const container = document.createElement("div");
   container.innerHTML = `<h3>${escapeHtml(pr.path)}</h3>`;
+  const itunesCard = document.createElement("div");
+  container.appendChild(itunesCard);
   const list = document.createElement("div");
   container.appendChild(list);
+  // Set once the iTunes art card loads; read when a decision is sent.
+  let useItunesArt = () => false;
+  loadItunesArtCard(itunesCard, pr.path, container).then((getter) => { useItunesArt = getter; });
 
   let focusedIndex = null;
 
@@ -506,7 +511,7 @@ async function openReview(pr) {
         e.stopPropagation();
         const toast = createProgressToast(`Applying import for ${pr.path}…`);
         try {
-          await decide(pr.task_id, { action: "select", index: i });
+          await decide(pr.task_id, { action: "select", index: i, use_itunes_art: useItunesArt() });
           backdrop.close();
           loadInbox();
           toast.done(`Import applied successfully for ${pr.path}!`);
@@ -593,7 +598,7 @@ async function openReview(pr) {
   idRow.querySelector("[data-asis]").addEventListener("click", async () => {
     const toast = createProgressToast(`Applying import as-is for ${pr.path}…`);
     try {
-      await decide(pr.task_id, { action: "asis" });
+      await decide(pr.task_id, { action: "asis", use_itunes_art: useItunesArt() });
       backdrop.close();
       loadInbox();
       toast.done(`Imported as-is.`);
@@ -615,6 +620,51 @@ async function openReview(pr) {
 
   container.appendChild(idRow);
   var backdrop = openModal(container);
+}
+
+// iTunes purchases: offer the store's artwork instead of Cover Art Archive.
+// Resolves to a function returning whether to use it (false if no card).
+async function loadItunesArtCard(host, path, reviewContainer) {
+  let info;
+  try {
+    info = await api(`/api/inbox/itunes_art?path=${encodeURIComponent(path)}`);
+  } catch {
+    return () => false;
+  }
+  if (!info.detected) return () => false;
+
+  if (info.error) {
+    host.innerHTML = `<div class="itunes-card"><div>
+        <div class="itunes-title">iTunes purchase detected</div>
+        <div class="warn-text">${escapeHtml(info.error)}</div>
+      </div></div>`;
+    return () => false;
+  }
+
+  const size = info.width && info.height ? `${info.width} × ${info.height} px · ` : "";
+  const format = (info.mime || "").replace("image/", "").toUpperCase();
+  host.innerHTML = `
+    <div class="itunes-card">
+      <a class="art-frame" href="${info.image_url}" target="_blank" rel="noopener" title="Open full size">
+        <img src="${info.image_url}" alt="iTunes artwork" />
+      </a>
+      <div class="itunes-body">
+        <div class="itunes-title">iTunes purchase detected</div>
+        <div class="muted">${escapeHtml(info.collection_name || "")}${info.artist ? " — " + escapeHtml(info.artist) : ""}
+          ${info.store_url ? ` · <a href="${escapeHtml(info.store_url)}" target="_blank" rel="noopener">Apple Music</a>` : ""}</div>
+        <div class="muted">${size}${explorerBytes(info.bytes)} · ${escapeHtml(format)}</div>
+        <label class="itunes-toggle"><input type="checkbox" data-use-itunes ${info.existing_cover ? "" : "checked"} />
+          Use iTunes art for this import</label>
+        <div class="muted itunes-note">${info.existing_cover
+          ? `This folder already has <b>${escapeHtml(info.existing_cover)}</b>, which will be used unless you check this (it's kept, renamed to ${escapeHtml(info.existing_cover)}.before-itunes).`
+          : "Saved as cover.jpg in the inbox folder, so beets embeds it instead of the Cover Art Archive image."}</div>
+      </div>
+    </div>`;
+  const box = host.querySelector("[data-use-itunes]");
+  const sync = () => reviewContainer.classList.toggle("use-itunes-art", box.checked);
+  box.addEventListener("change", sync);
+  sync();
+  return () => box.checked;
 }
 
 async function loadArtCompare(candidateEl, pr, candidate) {

@@ -477,3 +477,21 @@ button:disabled { opacity: .5; cursor: default; }
 .id-line a { color: var(--accent); }
 .field-badge.changed { background: rgba(76,175,125,.15); color: #8fd4b0; }
 .explorer-note .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; word-break: break-all; }
+
+/* iTunes art override card (import review) */
+.itunes-card {
+  display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap;
+  border: 1px solid var(--border); border-radius: 10px; padding: 10px; margin: 8px 0 12px;
+  background: rgba(255,255,255,.02);
+}
+.itunes-card .art-frame { width: 120px; }
+.itunes-body { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.itunes-title { font-weight: 600; font-size: 14px; }
+.itunes-body a { color: var(--accent); }
+.itunes-toggle { margin-top: 4px; font-size: 14px; display: flex; gap: 6px; align-items: center; }
+.itunes-note { font-size: 12px; }
+.use-itunes-art .art-compare { position: relative; opacity: .45; }
+.use-itunes-art .art-compare::before {
+  content: "Replaced by iTunes art"; position: absolute; top: 4px; left: 4px; z-index: 1;
+  background: rgba(0,0,0,.75); color: #fff; font-size: 11px; padding: 2px 6px; border-radius: 6px;
+}

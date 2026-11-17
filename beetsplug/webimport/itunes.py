@@ -1,0 +1,186 @@
+"""iTunes art override for inbox imports.
+
+Files bought from the iTunes Store carry their catalog IDs in MP4 atoms:
+`plID` (album/collection) and `sfID` (storefront). From the collection ID,
+Apple's public lookup API returns the exact artwork URL, which serves the
+original upload when asked for a size at or above it.
+
+Saving that image as `cover.jpg` in the inbox folder makes it the album
+art: fetchart's `filesystem` source (first in the configured sources)
+searches the import's source folder and ranks names containing "cover"
+first. No beets config change is needed.
+
+Only catalog IDs and the country code are sent to Apple.
+"""
+from __future__ import annotations
+
+import os
+import re
+import threading
+from pathlib import Path
+
+import requests
+
+from .coverart import COVER_EXTS, image_info
+
+LOOKUP_URL = "https://itunes.apple.com/lookup"
+MP4_EXTS = (".m4a", ".m4p", ".m4b", ".mp4")
+TIMEOUT = 10
+HEADERS = {"User-Agent": "beets-webimport/0.1"}
+COVER_NAME = "cover"
+BACKUP_SUFFIX = ".before-itunes"
+
+# iTunes Store storefront IDs (the sfID atom) -> lookup `country`.
+STOREFRONTS = {
+    143441: "us", 143444: "gb", 143455: "ca", 143460: "au", 143461: "nz",
+    143443: "de", 143442: "fr", 143450: "it", 143454: "es", 143452: "nl",
+    143462: "jp", 143466: "kr", 143468: "mx", 143503: "br", 143465: "cn",
+    143456: "se", 143457: "no", 143458: "dk", 143447: "fi", 143449: "ie",
+    143445: "at", 143459: "ch", 143446: "be", 143467: "in",
+}
+
+_cache: dict[int, tuple[dict, bytes | None]] = {}
+_cache_lock = threading.Lock()
+
+
+def clear_cache() -> None:
+    with _cache_lock:
+        _cache.clear()
+
+
+def _read_mp4_tags(path: Path) -> dict | None:
+    from mutagen.mp4 import MP4
+
+    try:
+        return MP4(str(path)).tags or None
+    except Exception:  # noqa: BLE001 -- unreadable/non-MP4 file: not a purchase
+        return None
+
+
+def _first_int(value) -> int | None:
+    if isinstance(value, (list, tuple)):
+        value = value[0] if value else None
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def detect_ids(folder: Path) -> dict | None:
+    """{"collection_id", "country"} from the first MP4 file in `folder`
+    that carries an iTunes collection ID, else None."""
+    folder = Path(folder)
+    try:
+        names = sorted(os.listdir(folder))
+    except OSError:
+        return None
+    for name in names:
+        if not name.lower().endswith(MP4_EXTS):
+            continue
+        tags = _read_mp4_tags(folder / name)
+        if not tags:
+            continue
+        collection_id = _first_int(tags.get("plID"))
+        if collection_id:
+            storefront = _first_int(tags.get("sfID"))
+            return {"collection_id": collection_id, "country": STOREFRONTS.get(storefront)}
+    return None
+
+
+def full_res_url(artwork_url: str) -> str:
+    """Rewrite Apple's sized artwork URL (…/100x100bb.jpg) to request the
+    original: sizes at or above it return the original upload."""
+    return re.sub(r"/\d+x\d+[a-z]*(-\d+)?\.(jpg|png|webp)$", r"/10000x10000bb.\2", artwork_url)
+
+
+def _existing_cover(folder: Path) -> str | None:
+    try:
+        for name in sorted(os.listdir(folder)):
+            stem, ext = os.path.splitext(name.lower())
+            if stem == COVER_NAME and ext in COVER_EXTS:
+                return name
+    except OSError:
+        pass
+    return None
+
+
+def _fetch(collection_id: int, country: str | None) -> tuple[dict, bytes | None]:
+    with _cache_lock:
+        hit = _cache.get(collection_id)
+    if hit is not None:
+        return hit
+
+    params = {"id": collection_id, "entity": "album"}
+    if country:
+        params["country"] = country
+    info: dict = {"collection_id": collection_id, "error": None}
+    data = None
+    try:
+        resp = requests.get(LOOKUP_URL, params=params, timeout=TIMEOUT, headers=HEADERS)
+        resp.raise_for_status()
+        results = [r for r in resp.json().get("results", []) if r.get("wrapperType") == "collection"]
+        if not results:
+            info["error"] = "Album not found in the iTunes Store (it may have been removed)."
+        else:
+            r = results[0]
+            info.update({
+                "collection_name": r.get("collectionName"),
+                "artist": r.get("artistName"),
+                "store_url": (r.get("collectionViewUrl") or "").split("?")[0] or None,
+                "track_count": r.get("trackCount"),
+            })
+            art = r.get("artworkUrl100")
+            if not art:
+                info["error"] = "The iTunes Store has no artwork for this album."
+            else:
+                img = requests.get(full_res_url(art), timeout=TIMEOUT, headers=HEADERS)
+                img.raise_for_status()
+                data = img.content
+                info.update({k: v for k, v in image_info(data).items()})
+    except Exception as exc:  # noqa: BLE001 -- surfaced to the UI, not cached
+        info["error"] = f"iTunes lookup failed: {exc}"
+        return info, None
+
+    with _cache_lock:
+        _cache[collection_id] = (info, data)
+    return info, data
+
+
+def art_for_dir(folder: Path) -> dict | None:
+    """iTunes art details for an inbox folder, or None if it isn't an
+    iTunes purchase. Includes `existing_cover`, the name of a cover image
+    already in the folder (which would otherwise be used)."""
+    ids = detect_ids(folder)
+    if ids is None:
+        return None
+    info, _ = _fetch(ids["collection_id"], ids["country"])
+    return {**info, "country": ids["country"], "existing_cover": _existing_cover(Path(folder))}
+
+
+def image_for_collection(collection_id: int) -> bytes | None:
+    with _cache_lock:
+        hit = _cache.get(collection_id)
+    return hit[1] if hit else None
+
+
+def save_cover(folder: Path) -> Path:
+    """Save the folder's iTunes art as cover.<ext>. An existing cover
+    image is renamed with a `.before-itunes` suffix, not overwritten (the
+    suffix makes fetchart ignore it)."""
+    folder = Path(folder)
+    ids = detect_ids(folder)
+    if ids is None:
+        raise ValueError("Not an iTunes purchase (no iTunes album ID in the files).")
+    info, data = _fetch(ids["collection_id"], ids["country"])
+    if not data:
+        raise ValueError(info.get("error") or "No iTunes artwork available.")
+
+    existing = _existing_cover(folder)
+    if existing:
+        os.replace(folder / existing, folder / (existing + BACKUP_SUFFIX))
+    ext = {"image/png": ".png", "image/webp": ".webp"}.get(info.get("mime"), ".jpg")
+    target = folder / f"{COVER_NAME}{ext}"
+    tmp = target.with_name(target.name + ".tmp")
+    tmp.write_bytes(data)
+    os.replace(tmp, target)
+    return target
