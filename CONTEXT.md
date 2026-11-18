@@ -87,6 +87,13 @@ iTunes Store art (iTunes purchases), or an image file in the inbox folder.
 webimport applies it as the album's art; embedart embeds it (ADR-0013).
 _Avoid_: source art, resolved art (the retired dual preview)
 
+**Original File**:
+An inbox file's exact pre-import bytes, rebuildable from the library copy:
+webimport keeps everything except the audio (tags, art, container) and
+puts it back around the imported file's audio, checked by SHA-256
+(`originals.py`, ADR-0014). Distinct from the original-tags snapshot
+(`original_tags`), which is the readable view of the same tags.
+
 **Tag Preview**:
 In candidate review, each file's tags now vs. after importing with the
 focused candidate, computed by running beets' apply step on copies

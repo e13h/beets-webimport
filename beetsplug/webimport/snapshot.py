@@ -20,7 +20,10 @@ from __future__ import annotations
 
 import inspect
 import json
+import logging
 from datetime import datetime, timezone
+
+log = logging.getLogger("beets.webimport")
 
 SNAPSHOT_FIELD = "original_tags"
 SNAPSHOT_VERSION = 1
@@ -165,13 +168,19 @@ def capture_task(task, session):
     if not isinstance(session, WebImportSession) or not session.paths or session.query is not None:
         return
     items = task.items if getattr(task, "is_album", True) else [task.item]
+    from . import originals
+
     for item in items:
-        if SNAPSHOT_FIELD in item:
-            continue
-        try:
-            item[SNAPSHOT_FIELD] = json.dumps(capture(item), ensure_ascii=False)
-        except Exception:  # noqa: BLE001 -- never block an import on this
-            pass
+        if SNAPSHOT_FIELD not in item:
+            try:
+                item[SNAPSHOT_FIELD] = json.dumps(capture(item), ensure_ascii=False)
+            except Exception:  # noqa: BLE001 -- never block an import on this
+                pass
+        if originals.FIELD not in item:
+            try:
+                item[originals.FIELD] = json.dumps(originals.capture(item.path))
+            except Exception:  # noqa: BLE001
+                log.exception("couldn't keep the original of %s", item.path)
 
 
 

@@ -123,6 +123,7 @@ def get_album_explorer(lib, album_id: int) -> dict | None:
         # The original-tag snapshot is shown as its own layer, not as a
         # giant JSON string among the custom fields.
         fields.pop(snapshot.SNAPSHOT_FIELD, None)
+        fields.pop("original_file", None)
         return {
             "id": obj.id,
             "fields": fields,

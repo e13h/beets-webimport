@@ -11,7 +11,7 @@ from beets import config as beets_config
 from beets import context as beets_context
 from beets.util import syspath
 
-from . import artchoice, coverart, itunes, library, reimport, snapshot, tagpreview, tags
+from . import artchoice, coverart, itunes, library, originals, reimport, snapshot, tagpreview, tags
 from .grace import GracePeriodManager
 from .queue import InboxWorkerPool, ReviewManager
 from .session import WebImportSession
@@ -118,6 +118,13 @@ def create_app(lib, wi_config, plugin):
     # Import-time album art (fetchart's automatic step is off). Runs in the
     # serialized apply phase, so it never overlaps across parallel imports.
     plugin.register_listener("import_task_files", artchoice.on_import_task_files)
+    # After the art: check each file's original can be rebuilt from the
+    # imported file (originals.py).
+    plugin.register_listener("import_task_files", originals.verify_task)
+    try:
+        originals.prune(lib)  # originals from reviews that never imported
+    except Exception:  # noqa: BLE001
+        log.exception("couldn't prune stored originals")
 
     loghandler = None  # let beets use its default logging
 
