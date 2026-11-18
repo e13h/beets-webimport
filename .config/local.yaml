@@ -1,8 +1,12 @@
-# Container mount -> local path. Only deployment-specific paths belong here;
-# tests/test_homelab_config_parity.py fails on any other key.
+# Container mount -> local path, plus the dev Navidrome endpoint. Only
+# deployment-specific settings belong here; tests/test_homelab_config_parity.py
+# fails on any other key.
 #   /config     -> .config
 #   /music      -> .library
 #   /downloads  -> .inbox
+#   Navidrome   -> the throwaway test container that
+#                  .scratch/navidrome-safe-lifecycle/repro/e2e_webimport.py
+#                  starts (dummy credentials; not your real server)
 directory: /Users/evansmith/repos/beets-web-import/.library
 library: /Users/evansmith/repos/beets-web-import/.config/library.db
 
@@ -11,3 +15,7 @@ import:
 
 webimport:
   inbox_dir: /Users/evansmith/repos/beets-web-import/.inbox
+  navidrome:
+    url: http://localhost:14534
+    user: webimport
+    password: password

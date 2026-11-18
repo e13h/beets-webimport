@@ -9,6 +9,14 @@ values -- so it applies via the exact same code path the CLI flags use.
 
 Goes through the same WebImportSession / ReviewManager mechanism as a
 fresh import (per PRD).
+
+With Navidrome integration on (a Mover that is `enabled`), the reimport is
+two-phase (ADR-0011): the session writes the new tags with file moves
+switched off in its private config (`hold_files`), so the files stay
+put, and the albums are then handed to the Mover, which moves them once
+Navidrome has scanned the new tags. A reimport to another
+release changes the tracks' Navidrome IDs; tags and move together would
+lose their history.
 """
 from __future__ import annotations
 
@@ -49,11 +57,16 @@ def run_reimport(
     search_id: str | None = None,
     from_scratch: bool = False,
     set_fields: dict | None = None,
+    mover=None,
 ):
     """Runs synchronously in the calling (worker) thread -- caller is
     expected to invoke this inside a background thread/executor, same as
     a fresh inbox import."""
     query_str = _build_query(album_ids)
+    two_phase = mover is not None and mover.enabled
+    # Reimported items get new rows (beets replaces them by path), so find
+    # them again by their paths, which don't change while files are held.
+    paths = [item.path for aid in album_ids for item in lib.items(f"album_id:{aid}")]
 
     lock_acquired = False
     if apply_lock is not None:
@@ -73,9 +86,26 @@ def run_reimport(
             )
             if lock_acquired:
                 session._lock_acquired = True
+            session.hold_files = two_phase
             if search_id:
                 session.preset_search_id = search_id  # consumed by choose_match on first pass
             session.run()
     finally:
         if lock_acquired:
             apply_lock.release()
+    if two_phase:
+        hand_to_mover(lib, mover, paths)
+
+
+def hand_to_mover(lib, mover, paths) -> None:
+    """Queue the albums now holding `paths` for their move."""
+    from beets.dbcore.query import PathQuery
+
+    seen = set()
+    for path in paths:
+        for item in lib.items(PathQuery("path", path)):
+            key = item.album_id or -item.id
+            if key in seen:
+                continue
+            seen.add(key)
+            mover.relocate_item(item, wrote_tags=True)

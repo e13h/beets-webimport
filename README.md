@@ -9,6 +9,10 @@ web UI for:
 - Grace-period undo (ID-scoped `remove -d`, safe for `copy: yes` configs)
 - Library browsing/search, per-track and per-album metadata editing,
   bulk edit, with automatic `--move` on any path-affecting field change
+- Navidrome-safe moves: when tags and a path change together (e.g. a
+  reimport to another release), the files move only after Navidrome has
+  scanned the new tags, so play counts, stars and playlist entries carry
+  over (ADR-0011)
 - Custom tag vocabulary (e.g. `mood`) with track/album drag-drop assignment
 - `navidrome_library` assignment feeding your `$navidrome_library` path
   variable
@@ -37,7 +41,17 @@ webimport:
   tag_fields:
     - mood
   debug: false  # set true for Flask debug mode + auto-reload on code changes
+  navidrome:  # optional; off unless url and user are set
+    url: https://navidrome.example.com
+    user: webimport  # a regular (non-admin) Navidrome user is enough
+    # password: set WEBIMPORT_NAVIDROME_PASSWORD in the environment instead
 ```
+
+With `navidrome` set, an operation that writes tags and changes a file's
+path (a Library-tab reimport to another release, say) writes the tags
+first and moves the files once Navidrome has scanned them. Until then the
+album shows "Waiting for Navidrome" in the Library tab. Without it, files
+move at once.
 
 Run it:
 

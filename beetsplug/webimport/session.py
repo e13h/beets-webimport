@@ -99,6 +99,11 @@ class WebImportSession(importer.ImportSession):
         # caller once session.run() returns.
         self.apply_lock = apply_lock
         self._lock_acquired = False
+        # Set by reimport.py (two-phase reimport, ADR-0011): write tags but
+        # leave the files where they are; pendingmove.py moves them later.
+        # Private to this session (set_config), unlike the global import
+        # config, which parallel inbox reviews read (lifecycle.on_review).
+        self.hold_files = False
 
     def set_config(self, config):
         """beets' pipeline runs the first candidate lookup itself, before
@@ -112,11 +117,16 @@ class WebImportSession(importer.ImportSession):
         if isinstance(search_ids, str):
             search_ids = [search_ids]
         search_ids = [s for s in (search_ids or []) if s and s.strip()]
+        overlay = {}
         if search_ids:
-            overlay = confuse.ConfigSource.of({"import": {"search_ids": search_ids}})
-            config = confuse.RootView([overlay, *config.root().sources])["import"]
+            overlay["search_ids"] = search_ids
             self._initial_search_id = ", ".join(search_ids)
             self.preset_search_id = None
+        if self.hold_files:
+            overlay.update({k: False for k in ("move", "copy", "link", "hardlink", "reflink")})
+        if overlay:
+            source = confuse.ConfigSource.of({"import": overlay})
+            config = confuse.RootView([source, *config.root().sources])["import"]
         super().set_config(config)
 
     # -- album matching -----------------------------------------------

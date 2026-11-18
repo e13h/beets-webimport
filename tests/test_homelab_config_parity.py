@@ -29,12 +29,16 @@ SELFHOSTED_CONFIG = Path(
     )
 )
 
-# Container mount points that legitimately differ on a dev machine.
+# Container mount points and the Navidrome endpoint (a local test container
+# in dev), which legitimately differ on a dev machine.
 ALLOWED_LOCAL_KEYS = {
     ("directory",),
     ("library",),
     ("import", "log"),
     ("webimport", "inbox_dir"),
+    ("webimport", "navidrome", "url"),
+    ("webimport", "navidrome", "user"),
+    ("webimport", "navidrome", "password"),
 }
 
 

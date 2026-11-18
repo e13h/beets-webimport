@@ -230,6 +230,17 @@ button:disabled { opacity: .5; cursor: default; }
   padding: 2px 6px; border-radius: 6px;
   z-index: 2;
 }
+.album-tile .pending-badge {
+  position: absolute; bottom: 52px; left: 6px;
+  background: #b7791f; color: #fff; font-size: 10px;
+  padding: 2px 6px; border-radius: 6px;
+  z-index: 2;
+}
+.pending-move-banner {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin: 8px 0; padding: 8px 12px; border-radius: 8px;
+  background: rgba(183,121,31,.15); border: 1px solid #b7791f;
+}
 .album-tile input[type=checkbox] {
   position: absolute; top: 6px; right: 6px; width: 20px; height: 20px;
   z-index: 2;

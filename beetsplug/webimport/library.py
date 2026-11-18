@@ -1,10 +1,9 @@
 """Library browse/search + metadata editing.
 
-Per PRD: any field edit (single field, single track/album, or bulk) that
-would change the computed file path automatically triggers the
-equivalent of `--move` (since the beets config here runs copy: yes,
-move: no -- library-side relocation after edits has to be requested
-explicitly, which is what Item.move()/Album.move() do).
+A field edit (single field, single track/album, or bulk) saves the fields,
+writes the files' tags when a real tag field changed, and, if the computed
+path changed, moves the files. With a Mover (pendingmove.py), a move after a
+tag write waits for Navidrome to scan the new tags first (ADR-0011).
 """
 from __future__ import annotations
 
@@ -245,6 +244,32 @@ def _paths_would_change(obj) -> bool:
     return bytes(new_path) != bytes(obj.path)
 
 
+def _write_tags(items, fields) -> bool:
+    """Writes the files' tags if any edited field is stored in them.
+    beets-only (flexible) fields such as navidrome_library aren't, and the
+    files stay untouched: their tags are what Navidrome already has."""
+    from beets.library import Item
+
+    if not set(fields) & Item._media_fields:
+        return False
+    for item in items:
+        item.try_write()
+    return True
+
+
+def _relocate(obj, wrote_tags: bool, mover=None) -> str:
+    """Moves `obj` (album or item) to its computed path, through the Mover
+    when there is one. Returns "moved", "pending" or "unchanged"."""
+    if mover is not None:
+        if hasattr(obj, "items"):
+            return mover.relocate_album(obj, wrote_tags)
+        return mover.relocate_item(obj, wrote_tags)
+    if not _paths_would_change(obj):
+        return "unchanged"
+    obj.move()
+    return "moved"
+
+
 def _paths_would_change_for_items(items) -> bool:
     for item in items:
         try:
@@ -262,6 +287,7 @@ def set_album_fields(
     fields: dict,
     move: bool = True,
     conflict_resolution: str | None = None,
+    mover=None,
 ) -> dict:
     """Sets metadata fields on an album (and its items).
     Detects Placement Conflicts when move=True and proposed file paths collide with existing files.
@@ -343,15 +369,16 @@ def set_album_fields(
                             os.remove(c)
                         except OSError:
                             pass
-                album.move()
-                return {"ok": True, "action": "overwrite"}
+                wrote = _write_tags(items, fields)
+                return {"ok": True, "action": "overwrite", "move": _relocate(album, wrote, mover)}
             elif conflict_resolution == "keep_both":
-                album.move()
-                return {"ok": True, "action": "keep_both"}
+                wrote = _write_tags(items, fields)
+                return {"ok": True, "action": "keep_both", "move": _relocate(album, wrote, mover)}
 
-    if move and _paths_would_change_for_items(items):
-        album.move()
-    return {"ok": True}
+    wrote = _write_tags(items, fields)
+    if move:
+        return {"ok": True, "move": _relocate(album, wrote, mover)}
+    return {"ok": True, "move": "unchanged"}
 
 
 def set_item_fields(
@@ -360,6 +387,7 @@ def set_item_fields(
     fields: dict,
     move: bool = True,
     conflict_resolution: str | None = None,
+    mover=None,
 ) -> dict:
     """Sets metadata fields on a single item.
     Detects Placement Conflicts when move=True and proposed file path collides with an existing file.
@@ -413,15 +441,16 @@ def set_item_fields(
                         os.remove(dest_str)
                     except OSError:
                         pass
-                item.move()
-                return {"ok": True, "action": "overwrite"}
+                wrote = _write_tags([item], fields)
+                return {"ok": True, "action": "overwrite", "move": _relocate(item, wrote, mover)}
             elif conflict_resolution == "keep_both":
-                item.move()
-                return {"ok": True, "action": "keep_both"}
+                wrote = _write_tags([item], fields)
+                return {"ok": True, "action": "keep_both", "move": _relocate(item, wrote, mover)}
 
-    if move and _paths_would_change(item):
-        item.move()
-    return {"ok": True}
+    wrote = _write_tags([item], fields)
+    if move:
+        return {"ok": True, "move": _relocate(item, wrote, mover)}
+    return {"ok": True, "move": "unchanged"}
 
 
 def bulk_set_field(
@@ -431,6 +460,7 @@ def bulk_set_field(
     value: str,
     move: bool = True,
     conflict_resolution: str | None = None,
+    mover=None,
 ) -> dict:
     if move and conflict_resolution is None:
         for album_id in album_ids:
@@ -440,11 +470,13 @@ def bulk_set_field(
                 {field: value},
                 move=True,
                 conflict_resolution=None,
+                mover=mover,
             )
             if res.get("conflict"):
                 return res
 
     updated = 0
+    pending = 0
     for album_id in album_ids:
         res = set_album_fields(
             lib,
@@ -452,7 +484,10 @@ def bulk_set_field(
             {field: value},
             move=move,
             conflict_resolution=conflict_resolution,
+            mover=mover,
         )
         if res.get("ok"):
             updated += 1
-    return {"ok": True, "updated": updated}
+            if res.get("move") == "pending":
+                pending += 1
+    return {"ok": True, "updated": updated, "pending": pending}

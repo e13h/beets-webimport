@@ -55,6 +55,14 @@ beets applies includes on top of the main file in order, so later files win:
   `directory` (`/music` → `.library`), `library` and `import.log`
   (`/config` → `.config`), `webimport.inbox_dir` (`/downloads` → `.inbox`).
 
+`local.yaml` also points `webimport.navidrome` at a throwaway test Navidrome
+(`http://localhost:14534`, `webimport`/`password`), the one
+`.scratch/navidrome-safe-lifecycle/repro/e2e_webimport.py on|off` starts.
+When that container isn't running, a dev reimport stays "Waiting for
+Navidrome" (Pending Move, ADR-0011) until you press "Move now". Docker
+Desktop on macOS drops some file events into the container, so the e2e
+script starts the scan itself if the watcher doesn't.
+
 `tests/test_homelab_config_parity.py` enforces this: the copy must match the
 selfhosted repo (skipped if that repo isn't at `../selfhosted`; override with
 `HOMELAB_BEETS_CONFIG`), `local.yaml` may only set those path keys, and every

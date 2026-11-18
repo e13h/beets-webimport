@@ -960,6 +960,7 @@ async function loadLibrary(q = "") {
         <div class="art-placeholder"><span>No Art</span></div>
       </div>
       <span class="lib-badge">${escapeHtml(a.navidrome_library || "unassigned")}</span>
+      ${a.pending_move ? `<span class="pending-badge" title="${PENDING_MOVE_HINT}">Waiting for Navidrome</span>` : ""}
       <input type="checkbox" data-select />
       <div class="meta">${escapeHtml(a.albumartist)}<br/>${escapeHtml(a.album)}</div>`;
 
@@ -981,6 +982,35 @@ async function loadLibrary(q = "") {
     ]);
     grid.appendChild(tile);
   });
+  watchPendingMoves(albums.filter((a) => a.pending_move).map((a) => a.id), q);
+}
+
+// Pending Move (ADR-0011): files of an album whose tags were just written
+// move once Navidrome has scanned the new tags. While any shown album
+// waits, re-check every few seconds and refresh the grid when it's done.
+const PENDING_MOVE_HINT =
+  "New tags are written; the files move to their new path once Navidrome has scanned them, so play counts and playlists carry over.";
+let pendingMoveTimer = null;
+function watchPendingMoves(albumIds, q) {
+  clearTimeout(pendingMoveTimer);
+  if (albumIds.length === 0) return;
+  pendingMoveTimer = setTimeout(async () => {
+    let still;
+    try {
+      const res = await api("/api/library/pending_moves");
+      still = new Set(res.pending.filter((p) => p.kind === "album").map((p) => p.id));
+    } catch (_) {
+      return watchPendingMoves(albumIds, q);
+    }
+    if (albumIds.some((id) => !still.has(id))) loadLibrary(q);
+    else watchPendingMoves(albumIds, q);
+  }, 3000);
+}
+
+function savedMessage(res, what) {
+  return res && (res.move === "pending" || res.pending)
+    ? `${what} Files move once Navidrome has scanned the new tags.`
+    : what;
 }
 
 function updateBulkBar() {
@@ -1015,7 +1045,7 @@ async function promptSetLibrary(albumIds) {
     const value = input.value.trim();
     if (!value) return;
     try {
-      await api("/api/library/albums/bulk_fields", {
+      const res = await api("/api/library/albums/bulk_fields", {
         method: "POST",
         body: JSON.stringify({
           album_ids: albumIds,
@@ -1029,7 +1059,7 @@ async function promptSetLibrary(albumIds) {
       if (conflictResolution === "skip") {
         showToast("Skipped field update (reverted).", "info");
       } else {
-        showToast(`Updated navidrome_library on ${albumIds.length} album(s).`, "success");
+        showToast(savedMessage(res, `Updated navidrome_library on ${albumIds.length} album(s).`), "success");
       }
       selectedAlbumIds.clear();
       updateBulkBar();
@@ -1128,13 +1158,18 @@ async function openAlbumDetail(albumId) {
       <button class="secondary" data-reimport>Reimport…</button>
       <button class="secondary danger" data-undo-import>Undo import…</button>
     </div>
+    ${detail.pending_move ? `
+    <div class="pending-move-banner" data-pending-move>
+      <span><strong>Files not moved yet:</strong> ${escapeHtml(detail.pending_move.reason)}.</span>
+      <button class="secondary" data-move-now>Move now</button>
+    </div>` : ""}
     <div class="undo-panel" data-undo-panel hidden></div>
     <div data-explorer></div>`;
 
   const saveAlbumWithConflict = async (conflictResolution = null) => {
     const value = container.querySelector('[data-field="navidrome_library"]').value;
     try {
-      await api(`/api/library/albums/${albumId}/fields`, {
+      const res = await api(`/api/library/albums/${albumId}/fields`, {
         method: "POST",
         body: JSON.stringify({
           fields: { navidrome_library: value },
@@ -1145,7 +1180,7 @@ async function openAlbumDetail(albumId) {
       if (conflictResolution === "skip") {
         showToast("Edit skipped (reverted).", "info");
       } else {
-        showToast("Album saved.", "success");
+        showToast(savedMessage(res, "Album saved."), "success");
       }
       backdrop.close();
       loadListeningGroups();
@@ -1160,6 +1195,25 @@ async function openAlbumDetail(albumId) {
   };
 
   container.querySelector("[data-save-album]").addEventListener("click", () => saveAlbumWithConflict());
+
+  const moveNowBtn = container.querySelector("[data-move-now]");
+  if (moveNowBtn) {
+    moveNowBtn.addEventListener("click", async () => {
+      const ok = confirm(
+        "Move the files now, without waiting for Navidrome?\n\n" +
+          "If Navidrome hasn't scanned the new tags yet, these tracks may lose their play counts, stars and playlist entries there."
+      );
+      if (!ok) return;
+      try {
+        await api(`/api/library/pending_moves/${detail.pending_move.kind}/${detail.pending_move.id}/move`, { method: "POST" });
+        showToast("Files moved.", "success");
+        backdrop.close();
+        loadLibrary($("#lib-search").value);
+      } catch (err) {
+        showToast(`Move failed: ${err.message}`, "error");
+      }
+    });
+  }
 
   container.querySelector("[data-reimport]").addEventListener("click", () => {
     backdrop.close();

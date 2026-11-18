@@ -12,6 +12,8 @@ from beets import context as beets_context
 from beets.util import syspath
 
 from . import artchoice, coverart, itunes, library, lifecycle, originals, reimport, restore, snapshot, tagpreview, tags
+from .navidrome import NavidromeClient
+from .pendingmove import Mover
 from .queue import InboxWorkerPool, ReviewManager
 from .session import WebImportSession
 
@@ -115,6 +117,24 @@ def create_app(lib, wi_config, plugin):
         log.exception("webimport: startup cleanup failed")
 
     loghandler = None  # let beets use its default logging
+
+    # -- Pending Move (ADR-0011) -------------------------------------------
+    try:
+        nd_cfg = wi_config["navidrome"]
+    except KeyError:  # hand-built configs (tests) without the section: off
+        nd_cfg = None
+    navidrome = NavidromeClient.from_config(nd_cfg) if nd_cfg is not None else None
+    mover = Mover(
+        lib,
+        navidrome,
+        lock=apply_lock,
+        trigger_scan_after=nd_cfg["scan_request_after"].get(float) if navidrome else 60.0,
+        thread_init=bind_music_dir,
+    )
+    if navidrome is not None:
+        log.info("webimport: Navidrome integration on (%s as %s)", navidrome.base, navidrome.user)
+    mover.start()
+    app.config["webimport_mover"] = mover  # for tests / introspection
 
     # -- inbox scanning / import kickoff -----------------------------------
     def _run_album_import(path: str, search_id: str | None = None):
@@ -440,6 +460,7 @@ def create_app(lib, wi_config, plugin):
             return jsonify({"error": "An import is being applied; try again in a moment."}), 409
         try:
             result = restore.undo(lib, album, inbox_dir)
+            mover.forget("album", album_id)
         except restore.UndoRefused as exc:
             return jsonify({"error": str(exc), **exc.plan.as_json()}), 409
         finally:
@@ -453,13 +474,31 @@ def create_app(lib, wi_config, plugin):
     @app.get("/api/library/albums")
     def api_library_albums():
         q = request.args.get("q", "")
-        return jsonify(library.search_albums(lib, q))
+        albums = library.search_albums(lib, q)
+        pending = mover.pending_album_ids()
+        for a in albums:
+            a["pending_move"] = a["id"] in pending
+        return jsonify(albums)
+
+    @app.get("/api/library/pending_moves")
+    def api_pending_moves():
+        return jsonify({"navidrome": navidrome is not None, "pending": mover.pending()})
+
+    @app.post("/api/library/pending_moves/<kind>/<int:obj_id>/move")
+    @_safe
+    def api_pending_move_now(kind, obj_id):
+        if kind not in ("album", "item"):
+            return jsonify({"ok": False, "error": "kind must be album or item"}), 400
+        return jsonify({"ok": mover.move_now(kind, obj_id)})
 
     @app.get("/api/library/albums/<int:album_id>")
     def api_library_album_detail(album_id):
         detail = library.get_album_detail(lib, album_id)
         if detail is None:
             return jsonify({"error": "not found"}), 404
+        detail["pending_move"] = next(
+            (p for p in mover.pending() if p["kind"] == "album" and p["id"] == album_id), None
+        )
         return jsonify(detail)
 
     @app.get("/api/library/albums/<int:album_id>/explore")
@@ -529,6 +568,7 @@ def create_app(lib, wi_config, plugin):
             body.get("fields", {}),
             move=body.get("move", True),
             conflict_resolution=body.get("conflict_resolution"),
+            mover=mover,
         )
         if res.get("conflict"):
             return jsonify(res), 409
@@ -545,6 +585,7 @@ def create_app(lib, wi_config, plugin):
             body["value"],
             move=body.get("move", True),
             conflict_resolution=body.get("conflict_resolution"),
+            mover=mover,
         )
         if res.get("conflict"):
             return jsonify(res), 409
@@ -567,6 +608,7 @@ def create_app(lib, wi_config, plugin):
             body.get("fields", {}),
             move=body.get("move", True),
             conflict_resolution=body.get("conflict_resolution"),
+            mover=mover,
         )
         if res.get("conflict"):
             return jsonify(res), 409
@@ -622,6 +664,7 @@ def create_app(lib, wi_config, plugin):
                 search_id=search_id,
                 from_scratch=from_scratch,
                 set_fields=set_fields,
+                mover=mover,
             )
 
         pool.submit(f"reimport:{','.join(map(str, album_ids))}", lambda _p: _job())

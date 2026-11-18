@@ -34,6 +34,21 @@ class WebImportPlugin(BeetsPlugin):
                 # to the album's Apple Music listing and use it as the
                 # Direct ID when no ID was given.
                 "apple_music_match": True,
+                # Navidrome integration (Pending Move, ADR-0011): moves
+                # that follow a tag write wait for Navidrome to scan the
+                # new tags, so tracks keep their play history, stars and
+                # playlist entries. Off unless url and user are set. Keep
+                # the password out of config files: set it in the
+                # WEBIMPORT_NAVIDROME_PASSWORD environment variable.
+                "navidrome": {
+                    "url": "",
+                    "user": "",
+                    "password": "",
+                    # Ask Navidrome for a scan if none came this many
+                    # seconds after a write (needs an admin user; a
+                    # regular user just keeps waiting for the watcher).
+                    "scan_request_after": 60,
+                },
             }
         )
 

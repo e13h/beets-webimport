@@ -62,13 +62,14 @@ A folder imported before move mode, still holding its files and the
 exactly from the library (ADR-0015).
 
 **Pending Move**:
-The advisory state of a library item whose metadata was written (phase 1
-of ADR-0011) but whose file still sits at its old path, awaiting the
-user's confirmation that Navidrome has picked up the change before the
-move (phase 2) runs. Detected, never persisted: an actual-path vs.
-computed-path mismatch means a move is owed (holds across restarts,
-per ADR-0004). Superseded by any later move-producing operation; undone
-away with the item.
+The state of an album (or singleton) whose new tags were written (phase 1
+of ADR-0011) but whose files still sit at their old path, until a
+Navidrome scan that started after the write has seen them. webimport
+watches Navidrome's scan status and then runs the move (phase 2) by
+itself. "Move now" is the manual override. Held in memory only
+(ADR-0004): after a restart, albums not at their computed path are listed
+as pending but wait for "Move now". A later write restarts the wait; Undo
+import drops it.
 _Avoid_: move queue, deferred move
 
 **Art Choice**:
@@ -113,12 +114,15 @@ review happens *across* sessions; the Import Task(s) within a single
 session are still visited one at a time by the beets pipeline.
 
 **Two-Phase Edit**:
-The rule (ADR-0011) that any library operation changing a file's computed
-path — field edit, bulk edit, or Library-tab reimport apply — writes
-metadata first and defers the move behind Pending Move confirmation, so
-Navidrome can remap PIDs while paths stay stable. Skipped entirely when
-the computed path doesn't change, and for Import-tab applies (those files
-never existed in Navidrome). Supersedes Move-on-Field-Change.
+The rule (ADR-0011) that a library operation which both writes tags and
+changes a file's computed path (a Library-tab reimport apply, or an edit
+of a real tag field) writes the tags first and leaves the move as a
+Pending Move. Navidrome then sees only one change per scan and keeps the
+track's history. Edits of beets-only fields (e.g. `navidrome_library`)
+move at once, since the files' tags don't change. Skipped when the
+computed path doesn't change, for Import-tab applies (those files never
+existed in Navidrome), and when the Navidrome integration is off.
+Supersedes Move-on-Field-Change.
 _Avoid_: modify-then-move (loose description, not the term)
 
 **Move-on-Field-Change** *(superseded)*:
