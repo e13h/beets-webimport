@@ -367,7 +367,7 @@ async function renderAlbumExplorer(host, albumId) {
       groups.push([name, list.filter((f) => f in fields && !custom.has(f))]);
       list.forEach((f) => placed.add(f));
     }
-    groups.push(["Custom fields", [...custom].sort()]);
+    groups.push(["Custom fields — beets library only, not written to files", [...custom].sort()]);
     groups.push(["Audio & file (read-only)", [...readonly].filter((f) => f in fields)]);
     readonly.forEach((f) => placed.add(f));
     groups.push(["Other", Object.keys(fields).filter((f) => !placed.has(f) && !custom.has(f)).sort()]);
@@ -713,7 +713,7 @@ function renderTagPreview(host, data) {
       });
     }
     if (data.set_fields && data.set_fields.length) {
-      html += `<div class="explorer-note muted">Also set in beets (stored in the library, not written to files): ${data.set_fields.map((s) => `<span class="mono">${escapeHtml(s.field)} = ${escapeHtml(s.value)}</span>`).join(", ")}.</div>`;
+      html += `<div class="explorer-note muted">Also set in the beets library, not written to the files (it appears under Custom fields in the library explorer): ${data.set_fields.map((s) => `<span class="mono">${escapeHtml(s.field)} = ${escapeHtml(s.value)}</span>`).join(", ")}.</div>`;
     }
     html += `<div class="explorer-note muted">Replaced and removed values aren't gone for good: beets keeps each file's original tags (Library → album → "Original file"), and with copy mode the inbox file is untouched until you confirm the import.</div>`;
     bodyEl.innerHTML = html;
