@@ -6,30 +6,7 @@ from unittest.mock import MagicMock
 
 from beets.library import Item, Library
 
-from beetsplug.webimport.grace import GracePeriodManager
 from beetsplug.webimport.server import create_app
-
-
-def test_undo_cleans_marker_file(lib: Library, tmp_path: Path, create_wav_file):
-    inbox_folder = tmp_path / "inbox" / "Test Album"
-    inbox_folder.mkdir(parents=True, exist_ok=True)
-    marker_file = inbox_folder / ".webimport_imported"
-    marker_file.write_text(json.dumps({"album_id": 1, "imported_at": "2026-08-23T00:00:00Z", "staging_bin": False}))
-
-    music_file = create_wav_file(tmp_path / "music" / "Artist" / "Album" / "track1.wav")
-    item = Item.from_path(str(music_file))
-    lib.add(item)
-    album = lib.add_album([item])
-    assert album.id is not None
-
-    mgr = GracePeriodManager(lib, grace_period_seconds=600)
-    rec_id = mgr.register("album", album.id, "Artist - Album", inbox_path=str(inbox_folder))
-
-    assert marker_file.exists()
-    ok = mgr.undo(rec_id)
-    assert ok is True
-    assert not marker_file.exists()
-    assert lib.get_album(album.id) is None
 
 
 def test_api_inbox_reports_imported_markers(lib: Library, tmp_path: Path):

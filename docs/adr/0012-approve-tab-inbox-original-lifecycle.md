@@ -1,5 +1,7 @@
 # 0012: Approve Tab — Marker-Driven Inbox Original Lifecycle
 
+> **Superseded by ADR-0015** (move mode; Undo Import restores originals from the library).
+
 Under copy mode, inbox originals are the undo mechanism, so their lifecycle
 is user-visible state, not a background timer's business. The Undo tab is
 renamed **Approve** and redefined: a folder containing the

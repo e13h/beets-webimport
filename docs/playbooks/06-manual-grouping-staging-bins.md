@@ -1,5 +1,12 @@
 # Playbook 06: Manual Grouping via Staging Bins
 
+> **Outdated in part (ADR-0015, move mode):** steps that use the Approve/Undo
+> tab, Confirm Import, the grace period, or expect inbox files and a
+> `.webimport_imported` marker to remain after import describe the old
+> copy mode. Now an import empties and prunes the inbox folder, and undo is
+> **Undo import…** on the library album (restores the folder
+> byte-identical). Playbook 03 covers the current flow.
+
 ## Purpose & Scope
 
 This playbook verifies the **Manual Grouping** workflow via ad-hoc **Staging Bins**, as specified in `.scratch/webimport/spec.md` (User Stories 9–12), **ADR-0003** (Staging-directory manual grouping over in-memory task construction), and **ADR-0009** (Playwright against a real running server).

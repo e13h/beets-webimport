@@ -20,7 +20,7 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import originals
+from . import lifecycle, originals
 
 MARKER = ".webimport_imported"
 
@@ -33,7 +33,7 @@ class UndoRefused(Exception):
 
 @dataclass
 class FilePlan:
-    item_id: int
+    item_id: int | None  # None: one of the folder's other files (lifecycle.py)
     title: str
     library_path: str
     dest: str
@@ -60,6 +60,8 @@ class Plan:
             "files": [{"item_id": f.item_id, "title": f.title, "dest": f.dest, "action": f.action}
                       for f in self.files],
             "to_write": sum(f.action == "write" for f in self.files),
+            "audio_files": sum(f.item_id is not None for f in self.files),
+            "other_files": sum(f.item_id is None for f in self.files),
             "already_in_inbox": sum(f.action == "present" for f in self.files),
         }
 
@@ -118,7 +120,22 @@ def plan(album, inbox_dir: str) -> Plan:
                 p.problems.append(f"{label}: a different file is already at {dest}.")
                 continue
         p.files.append(FilePlan(item.id, label, os.fsdecode(item.path), dest, action, rec))
-    if not p.files and not p.problems:
+    comps = lifecycle.load_companions(album)
+    for c in (comps or {}).get("files", []):
+        dest = os.path.join(comps["folder"], c["rel"])
+        if not _inside(dest, inbox_dir) or dest in seen:
+            p.problems.append(f"{c['rel']}: its original location isn't in the inbox.")
+            continue
+        seen.add(dest)
+        action = "write"
+        if os.path.lexists(dest):
+            if os.path.isfile(dest) and _sha256_file(dest) == c["sha256"]:
+                action = "present"
+            else:
+                p.problems.append(f"{c['rel']}: a different file is already at {dest}.")
+                continue
+        p.files.append(FilePlan(None, c["rel"], "", dest, action, {**c, "format": "full"}))
+    if not any(f.item_id is not None for f in p.files) and not p.problems:
         p.problems.append("The album has no tracks.")
     return p
 

@@ -181,6 +181,12 @@ def capture_task(task, session):
                 item[originals.FIELD] = json.dumps(originals.capture(item.path))
             except Exception:  # noqa: BLE001
                 log.exception("couldn't keep the original of %s", item.path)
+    from . import lifecycle
+
+    try:
+        lifecycle.on_review(task, session)
+    except Exception:  # noqa: BLE001
+        log.exception("couldn't prepare move-mode safety copies")
 
 
 

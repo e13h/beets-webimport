@@ -20,7 +20,8 @@ source of truth and current work breakdown), and `docs/adr/`
 - **Disposable test setup** (all inside the repo, safe to wipe):
   - Config: layered so dev runs the homelab's exact settings (see below).
   - Library DB: `.config/library.db` (git-ignored; regenerated)
-  - Music dir (import destination, copy-mode): `.library/`
+  - Music dir (import destination; imports **move** files here from `.inbox/`): `.library/`
+  - Stored originals (for Undo import): `.config/webimport-originals/`
   - Inbox: `.inbox/` — contains a 4-track Mulan album for hello-world tests.
 - **Run the server:** `scripts/dev-server.sh`
   (serves on `0.0.0.0:8338`).
@@ -78,7 +79,7 @@ Consequences of the homelab settings that tests and playbooks must expect:
   store purchases (iTunes `plID`, Amazon "Amazon.com Song ID" comment) the
   review also searches digital releases of the album and adds the best two
   (`purchase.py`), marking ones from the files' year "likely your purchase".
-- `webimport` uses its built-in defaults (grace period, `tag_fields`), since
+- `webimport` uses its built-in defaults (`tag_fields`, workers), since
   the homelab sets only host/port/inbox.
 
 ## Testing workflows (Playwright playbooks + pytest)
@@ -113,7 +114,7 @@ The import runs in a worker thread; the Flask request thread is the "browser".
 Two races to design around when scripting:
 1. **Album appears in `/api/library/albums` BEFORE the import finalizes.**
    `task.add(lib)` runs during review-apply, but art embedding and the
-   `album_imported` event (→ grace/undo record) fire later in
+   `album_imported` event (→ copy-mode marker) fire later in
    `manipulate_files`/`finalize`. To know an import is *fully* done, poll
    `/api/undo` (the undo record), not the album list.
 2. **`search_id` re-review reuses the pending queue.** After POSTing a
@@ -179,9 +180,9 @@ skip `.venv`, so use `read_file` with paths, or `list_directory`).
   in a `finally` after `session.run()`.
 - `queue.py` — `ReviewManager` (per-task 1-slot decision queue),
   `InboxWorkerPool` (bounded thread pool for parallel review).
-- `grace.py` — ID-scoped undo (`remove(delete=True)`), keyed on the DB IDs
-  captured from real import events. In-memory only, per app instance (not
-  persisted across restart — intentional).
+- `restore.py` / `originals.py` / `lifecycle.py` — Undo import rebuilds each
+  original byte-for-byte from the library file plus stored non-audio bytes
+  (ADR-0014/0015); move-mode safety copies and companion files.
 - `server.py::create_app` — the **only** place event listeners are registered
   and the whole app is wired; start here to trace any request.
 - `reimport.py` — temporarily flips `import.from_scratch`/`set_fields`, runs a
@@ -193,3 +194,12 @@ Pyright runs in a strict-ish mode and floods `coverart.py`/etc. with
 "unknown type" / missing-stub warnings for `requests`, `PIL`, and untyped
 dicts. These are **noise** in this deliberately-untyped codebase — don't
 chase them; only real errors matter.
+
+## Move mode and your inbox files (ADR-0015)
+
+Imports **move** files out of `.inbox/` (your real purchased files) into
+`.library/`. `scripts/dev-reset.sh` therefore first undoes every import
+(`scripts/dev-undo-all.py`: originals back in `.inbox/`, byte-identical)
+and refuses to delete anything if one can't be undone. Albums imported in
+copy mode before ADR-0015 have no stored originals; their inbox copies are
+still there, so `scripts/dev-reset.sh --force` is safe for those.

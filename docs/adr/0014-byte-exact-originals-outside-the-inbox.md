@@ -11,9 +11,7 @@ SHA-256 matches the original. Formats without a splitter are kept whole.
 After each import, webimport checks the rebuild works; if not and the inbox
 original still exists, it keeps that file whole instead.
 
-This is step one toward `move: yes` (no inbox staging, undo restores from
-the library): it makes the inbox copy redundant. ADR-0001 and ADR-0012
-still hold until undo-by-restore exists and move mode is switched on.
+This made the inbox copy redundant; ADR-0015 switches to `move: yes`.
 
 ## Consequences
 

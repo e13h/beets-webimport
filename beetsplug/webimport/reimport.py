@@ -7,8 +7,8 @@ temporarily flips beets' own `import.from_scratch` / `import.set_fields`
 config for the duration of the reimport session, then restores the prior
 values -- so it applies via the exact same code path the CLI flags use.
 
-Goes through the same WebImportSession / ReviewManager / grace-period
-mechanism as a fresh import (per PRD).
+Goes through the same WebImportSession / ReviewManager mechanism as a
+fresh import (per PRD).
 """
 from __future__ import annotations
 

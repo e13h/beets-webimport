@@ -9,7 +9,7 @@ Per ADR-0009 and `.scratch/webimport/spec.md`'s Testing Decisions section, testi
 - **Harness & Fixtures:**
   - `lib` fixture in `tests/conftest.py` provides an isolated, disposable in-memory/temp-directory SQLite beets `Library` with clean music and database directories for each test.
   - `create_wav_file` fixture in `tests/conftest.py` creates valid minimal audio files for tag writing/reading tests.
-- **Scope:** Fast unit tests verifying component logic in isolation (`grace.py`, `reimport.py`, `library.py`, `tags.py`, etc.).
+- **Scope:** Fast unit tests verifying component logic in isolation (`originals.py`, `restore.py`, `lifecycle.py`, `reimport.py`, `library.py`, `tags.py`, etc.).
 - **Constraints:** Completely offline and hermetic — no network access required or allowed, no running server process required.
 
 ## 2. Playwright playbooks (end-to-end against real running server)
@@ -32,7 +32,7 @@ Per ADR-0009 and `.scratch/webimport/spec.md`'s Testing Decisions section, testi
   - Standard markdown document under `docs/playbooks/`.
   - Header with purpose and prerequisites (including resetting disposable library state).
   - Numbered, deterministic steps describing the UI action, the corresponding Playwright MCP tool calls, and the expected observable UI/filesystem/library outcomes.
-  - Verifies externally observable behavior (rendered UI elements, match indicators, copy-mode file placement in `.library/`, undo removals, DB state) rather than internal implementation calls.
+  - Verifies externally observable behavior (rendered UI elements, match indicators, move-mode file placement in `.library/`, undo removals, DB state) rather than internal implementation calls.
 - **Network-Host Allowlist:** Playbooks interacting with real MusicBrainz / Cover Art Archive metadata require network access to:
   - `musicbrainz.org`, `*.musicbrainz.org`
   - `coverartarchive.org`, `*.coverartarchive.org`

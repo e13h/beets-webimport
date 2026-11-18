@@ -104,7 +104,10 @@ async function api(path, opts) {
     }
     let errDetail = `${path}: ${res.status}`;
     if (data && data.error) errDetail = data.error;
-    throw new Error(errDetail);
+    const err = new Error(errDetail);
+    err.data = data;
+    err.status = res.status;
+    throw err;
   }
   return data;
 }
@@ -122,7 +125,6 @@ $$("#tabs button").forEach((btn) => {
 
 function refreshTab(tab) {
   if (tab === "inbox") loadInbox();
-  if (tab === "undo") loadUndo();
   if (tab === "library") {
     loadListeningGroups();
     loadLibrary();
@@ -293,7 +295,7 @@ async function loadInbox() {
       actionsHtml = `
         <button class="secondary" data-reimport>Re-import</button>
         <button class="secondary" data-id-toggle>Import with ID…</button>
-        <button class="danger" data-delete>Delete from inbox</button>`;
+        <button class="danger" data-release title="Imported before move mode: the inbox still holds a copy. Removes it once every file is checked to be restorable from the library (Undo import).">Remove inbox copy</button>`;
     } else if (inProgress || pendingReview) {
       actionsHtml = `
         <button disabled class="secondary">${inProgress ? "Searching Candidates…" : "Awaiting Review"}</button>`;
@@ -404,17 +406,17 @@ async function loadInbox() {
         if (albumId) openReimport([albumId]);
         else showToast("Album ID not available for reimport.", "error");
       });
-      card.querySelector("[data-delete]").addEventListener("click", async () => {
-        if (!confirm(`Delete "${path}" from inbox?`)) return;
+      card.querySelector("[data-release]").addEventListener("click", async (e) => {
+        e.target.disabled = true;
+        const toast = createProgressToast(`Checking ${path}…`);
         try {
-          await api("/api/inbox/delete", {
-            method: "POST",
-            body: JSON.stringify({ path }),
-          });
-          showToast(`Deleted "${path}" from inbox.`, "success");
+          const r = await api("/api/inbox/release", { method: "POST", body: JSON.stringify({ path }) });
+          toast.done(`Removed the inbox copy: ${r.audio_files} track${r.audio_files === 1 ? "" : "s"} restorable with Undo import${r.other_files ? `, ${r.other_files} other file${r.other_files === 1 ? "" : "s"} kept with the album` : ""}.`);
           loadInbox();
         } catch (err) {
-          showToast(`Failed to delete: ${err.message}`, "error");
+          e.target.disabled = false;
+          const problems = err.data?.problems?.length ? ` ${err.data.problems.join(" ")}` : "";
+          toast.error(`Kept the inbox copy: ${err.message}${problems}`);
         }
       });
     } else if (!inProgress && !pendingReview) {
@@ -878,39 +880,6 @@ function decide(taskId, decision) {
   });
 }
 
-// ===================== UNDO ============================================
-async function loadUndo() {
-  let records;
-  try {
-    records = await api("/api/undo");
-  } catch (err) {
-    showToast(`Failed to load undo items: ${err.message}`, "error");
-    return;
-  }
-
-  const el = $("#undo-list");
-  el.innerHTML = "";
-  if (records.length === 0) el.innerHTML = '<p class="timer">Nothing pending undo.</p>';
-  records.forEach((r) => {
-    const card = document.createElement("div");
-    card.className = "card";
-    card.innerHTML = `
-      <div>${escapeHtml(r.label)}</div>
-      <div class="timer">Undoable for ${r.seconds_remaining}s</div>
-      <button class="danger" data-undo>Undo</button>`;
-    card.querySelector("[data-undo]").addEventListener("click", async () => {
-      try {
-        await api(`/api/undo/${r.record_id}`, { method: "POST" });
-        showToast(`Undid import: ${r.label}`, "success");
-        loadUndo();
-      } catch (err) {
-        showToast(`Undo failed: ${err.message}`, "error");
-      }
-    });
-    el.appendChild(card);
-  });
-}
-
 // ===================== LISTENING GROUPS & CONFLICTS =================
 async function loadListeningGroups() {
   try {
@@ -1098,7 +1067,8 @@ async function showUndoImportPanel(panel, albumId, detail, onDone) {
     panel.innerHTML = `<div class="explorer-warn">Couldn't check: ${escapeHtml(err.message)}</div>`;
     return;
   }
-  const folders = plan.folders.map((f) => `<div class="mono">${escapeHtml(f)}</div>`).join("");
+  const top = plan.folders.filter((f) => !plan.folders.some((g) => g !== f && f.startsWith(g + "/")));
+  const folders = top.map((f) => `<div class="mono">${escapeHtml(f)}</div>`).join("");
   if (!plan.ok) {
     panel.innerHTML = `
       <div class="explorer-warn">This album can't be undone exactly, so nothing will be changed:</div>
@@ -1112,8 +1082,9 @@ async function showUndoImportPanel(panel, albumId, detail, onDone) {
   panel.innerHTML = `
     <div><strong>Undo import of ${escapeHtml(detail.fields.album)}?</strong></div>
     <div class="muted">
-      ${n === 1 ? "The original file goes" : `The ${n} original files go`} back to the inbox exactly as before import
-      (same tags, art and checksums), and the album is removed from the library, including its files in the music folder.
+      ${plan.audio_files === 1 ? "The original track goes" : `The ${plan.audio_files} original tracks go`}${plan.other_files ? ` (and ${plan.other_files} other file${plan.other_files === 1 ? "" : "s"} from the folder)` : ""}
+      back to the inbox exactly as before import (same tags, art and checksums), and the album is removed from the library,
+      including its files in the music folder.
       ${present === n ? (n === 1 ? " It's already in the inbox unchanged, so it's left as it is." : " They're already in the inbox unchanged, so they're left as they are.")
         : present ? ` ${present} of them ${present === 1 ? "is" : "are"} already in the inbox unchanged and left as ${present === 1 ? "it is" : "they are"}.` : ""}
     </div>
@@ -1128,7 +1099,7 @@ async function showUndoImportPanel(panel, albumId, detail, onDone) {
     const toast = createProgressToast(`Undoing import of ${detail.fields.album}…`);
     try {
       const r = await api(`/api/library/albums/${albumId}/undo_import`, { method: "POST" });
-      toast.done(`Undone: ${r.files.length} file${r.files.length === 1 ? "" : "s"} back in the inbox.`);
+      toast.done(`Undone: ${r.audio_files} track${r.audio_files === 1 ? "" : "s"}${r.other_files ? ` and ${r.other_files} other file${r.other_files === 1 ? "" : "s"}` : ""} back in the inbox.`);
       onDone();
     } catch (err) {
       e.target.disabled = false;
@@ -1339,5 +1310,4 @@ function promptApplyTag(scope, id) {
 loadInbox();
 setInterval(() => {
   if ($("#tab-inbox")?.classList.contains("active")) loadInbox();
-  if ($("#tab-undo")?.classList.contains("active")) loadUndo();
 }, 5000);

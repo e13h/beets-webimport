@@ -1,5 +1,12 @@
 # Playbook 20: Library Browse & Metadata Editing Coverage Gap
 
+> **Outdated in part (ADR-0015, move mode):** steps that use the Approve/Undo
+> tab, Confirm Import, the grace period, or expect inbox files and a
+> `.webimport_imported` marker to remain after import describe the old
+> copy mode. Now an import empties and prunes the inbox folder, and undo is
+> **Undo import…** on the library album (restores the folder
+> byte-identical). Playbook 03 covers the current flow.
+
 ## Purpose & Scope
 
 This playbook specifies the end-to-end verification and gap measurement procedures for the **Library Browse & Metadata Editing** capabilities in `beets-webimport`, covering User Stories 32–42 from `.scratch/webimport/spec.md`.

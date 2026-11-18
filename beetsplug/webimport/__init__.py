@@ -25,7 +25,6 @@ class WebImportPlugin(BeetsPlugin):
             {
                 "host": "0.0.0.0",
                 "port": 8338,
-                "grace_period_seconds": 600,
                 "inbox_dir": "",  # falls back to import.paths / user-set
                 "tag_fields": ["mood"],
                 "candidate_search_workers": 4,
@@ -84,5 +83,5 @@ class WebImportPlugin(BeetsPlugin):
         )
         # threaded=True is needed regardless of debug mode: the UI polls
         # several endpoints concurrently while background worker threads
-        # (InboxWorkerPool, grace period, etc.) are also running.
+        # (InboxWorkerPool, etc.) are also running.
         app.run(host=host, port=port, debug=debug, use_reloader=debug, threaded=True)

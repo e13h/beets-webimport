@@ -1,5 +1,12 @@
 # Playbook 03: Inbox Import → Apply → Grace-Period Undo
 
+> **Outdated in part (ADR-0015, move mode):** steps that use the Approve/Undo
+> tab, Confirm Import, the grace period, or expect inbox files and a
+> `.webimport_imported` marker to remain after import describe the old
+> copy mode. Now an import empties and prunes the inbox folder, and undo is
+> **Undo import…** on the library album (restores the folder
+> byte-identical). See the "Move mode" section at the end.
+
 ## Purpose & Scope
 
 This playbook verifies the standard **Inbox Import**, **Search-by-ID Override**, **Apply**, and **Grace-Period Undo** workflows as specified in `.scratch/webimport/spec.md` (User Stories 1–8, 21–25), **ADR-0001** (Copy-mode import with ID-scoped undo), and **ADR-0009** (Playwright against a real running server over in-process `test_client()` scripts).
@@ -371,3 +378,23 @@ Stop the `beet webimport` server process when testing completes:
 ```bash
 pkill -f "beet webimport" || true
 ```
+
+
+---
+
+## Move mode (current, ADR-0015)
+
+1. `scripts/dev-reset.sh --start`, then import a folder (e.g. Coldplay) and
+   apply. **Expected:** the folder disappears from the Inbox list and from
+   `.inbox/` (`ls .inbox`), including its other files (cover.jpg, logs);
+   the album appears in the Library.
+2. Library → album → **Undo import…**. **Expected:** the panel lists the
+   folder it will restore and the number of tracks and other files; no
+   problems.
+3. Confirm. **Expected:** toast "Undone: N tracks … back in the inbox";
+   the album is gone from the Library; the folder is back in the Inbox
+   list. `shasum -a 256` of every file matches its pre-import checksum.
+4. Copy-mode leftovers: a folder with a `.webimport_imported` marker shows
+   as **Imported** with **Remove inbox copy**; clicking it removes the
+   folder only if every file can be restored exactly (otherwise the toast
+   lists why and nothing changes).

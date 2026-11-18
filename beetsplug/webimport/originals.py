@@ -295,12 +295,20 @@ def remove(sha: str) -> None:
 
 
 def referenced(lib) -> set[str]:
+    """SHA-256s of every stored original still needed: items' audio files
+    and albums' other folder files (lifecycle.COMPANIONS_FIELD)."""
     with lib.transaction() as tx:
-        rows = tx.query("SELECT value FROM item_attributes WHERE key = ?", (FIELD,))
+        items = tx.query("SELECT value FROM item_attributes WHERE key = ?", (FIELD,))
+        albums = tx.query("SELECT value FROM album_attributes WHERE key = ?", ("original_folder",))
     out = set()
-    for (value,) in rows:
+    for (value,) in items:
         try:
             out.add(json.loads(value)["sha256"])
+        except (TypeError, ValueError, KeyError):
+            pass
+    for (value,) in albums:
+        try:
+            out.update(f["sha256"] for f in json.loads(value)["files"])
         except (TypeError, ValueError, KeyError):
             pass
     return out
@@ -333,12 +341,19 @@ def verify_task(session, task) -> None:
         record = load(item)
         if record is None or record.get("format") == "full" or can_restore(record, item.path):
             continue
-        src = record.get("source_path")
-        try:
-            data = Path(src).read_bytes() if src else None
-        except OSError:
-            data = None
-        if data is not None and hashlib.sha256(data).hexdigest() == record["sha256"]:
+        # The inbox original (copy mode) or the safety copy (move mode,
+        # lifecycle.py).
+        data = None
+        safety = getattr(task, "_webimport_safety", {}).get(record["sha256"])
+        for src in (record.get("source_path"), safety):
+            try:
+                candidate = Path(src).read_bytes() if src else None
+            except OSError:
+                candidate = None
+            if candidate is not None and hashlib.sha256(candidate).hexdigest() == record["sha256"]:
+                data = candidate
+                break
+        if data is not None:
             _write_atomic(store_root() / record["sha256"] / "full", data)
             record["format"] = "full"
             record.pop("audio_sha256", None)

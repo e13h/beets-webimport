@@ -11,8 +11,7 @@ from beets import config as beets_config
 from beets import context as beets_context
 from beets.util import syspath
 
-from . import artchoice, coverart, itunes, library, originals, reimport, restore, snapshot, tagpreview, tags
-from .grace import GracePeriodManager
+from . import artchoice, coverart, itunes, library, lifecycle, originals, reimport, restore, snapshot, tagpreview, tags
 from .queue import InboxWorkerPool, ReviewManager
 from .session import WebImportSession
 
@@ -57,7 +56,6 @@ def create_app(lib, wi_config, plugin):
 
     review_manager = ReviewManager()
     apply_lock = threading.Lock()
-    grace = GracePeriodManager(lib, wi_config["grace_period_seconds"].get(int))
     pool = InboxWorkerPool(
         wi_config["candidate_search_workers"].get(int), initializer=bind_music_dir
     )
@@ -88,43 +86,33 @@ def create_app(lib, wi_config, plugin):
     _import_ctx = {"path": None, "imported_album_id": None}
     _import_ctx_lock = threading.Lock()
 
-    # -- capture successful imports for grace-period undo -----------------
+    # -- copy mode: remember the imported album for the folder's marker ----
     def _on_album_imported(lib, album):
         with _import_ctx_lock:
-            inbox_path = _import_ctx["path"]
-            if inbox_path:
+            if _import_ctx["path"]:
                 _import_ctx["imported_album_id"] = album.id
-        grace.register(
-            "album",
-            album.id,
-            f"{album.albumartist} - {album.album}",
-            inbox_path=inbox_path,
-            is_staging_bin=bool(inbox_path and "_grouped" in str(inbox_path)),
-        )
-
-    def _on_item_imported(lib, item):
-        with _import_ctx_lock:
-            inbox_path = _import_ctx["path"]
-        grace.register(
-            "item",
-            item.id,
-            f"{item.artist} - {item.title}",
-            inbox_path=inbox_path,
-            is_staging_bin=bool(inbox_path and "_grouped" in str(inbox_path)),
-        )
 
     plugin.register_listener("album_imported", _on_album_imported)
-    plugin.register_listener("item_imported", _on_item_imported)
     # Import-time album art (fetchart's automatic step is off). Runs in the
     # serialized apply phase, so it never overlaps across parallel imports.
     plugin.register_listener("import_task_files", artchoice.on_import_task_files)
     # After the art: check each file's original can be rebuilt from the
     # imported file (originals.py).
     plugin.register_listener("import_task_files", originals.verify_task)
+    # Move mode: keep the folder's other files with the album, drop the
+    # safety copies, prune emptied folders (lifecycle.py).
+    plugin.register_listener("import_task_files", lifecycle.finish_task)
     try:
+        if inbox_dir:
+            lifecycle.cleanup_safety(lib, Path(inbox_dir))
+            # Folders imported in copy mode: save their originals while
+            # their inbox copies exist (only reads albums missing them).
+            n = lifecycle.backfill_all(lib, Path(inbox_dir))
+            if n:
+                log.info("webimport: saved originals for %d earlier-imported tracks", n)
         originals.prune(lib)  # originals from reviews that never imported
     except Exception:  # noqa: BLE001
-        log.exception("couldn't prune stored originals")
+        log.exception("webimport: startup cleanup failed")
 
     loghandler = None  # let beets use its default logging
 
@@ -155,7 +143,9 @@ def create_app(lib, wi_config, plugin):
             session.run()
             with _import_ctx_lock:
                 imported_album_id = _import_ctx["imported_album_id"]
-            if imported_album_id is not None:
+            # Copy mode only: in move mode the folder has been emptied
+            # (lifecycle.finish_task); there's nothing left to mark.
+            if imported_album_id is not None and not lifecycle.move_mode():
                 marker_path = Path(path) / ".webimport_imported"
                 try:
                     import json
@@ -185,7 +175,6 @@ def create_app(lib, wi_config, plugin):
     def api_inbox_list():
         """Lists album-sized directories under the inbox with import
         status and pending review status."""
-        grace.prune_expired()
         found = []
         base = Path(inbox_dir)
         running_paths = pool.running_paths()
@@ -229,7 +218,7 @@ def create_app(lib, wi_config, plugin):
 
         if base.is_dir():
             for sub in sorted(base.iterdir()):
-                if sub.is_dir():
+                if sub.is_dir() and not sub.name.startswith("."):
                     if sub.name == "_grouped":
                         for grp in sorted(sub.iterdir()):
                             if grp.is_dir():
@@ -411,15 +400,22 @@ def create_app(lib, wi_config, plugin):
         resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         return resp
 
-    # -- grace period / undo --------------------------------------------
-    @app.get("/api/undo")
-    def api_undo_list():
-        return jsonify(grace.list_undoable())
-
-    @app.post("/api/undo/<record_id>")
-    def api_undo_do(record_id):
-        ok = grace.undo(record_id)
-        return jsonify({"ok": ok})
+    @app.post("/api/inbox/release")
+    @_safe
+    def api_inbox_release():
+        """Remove an imported folder's inbox copy (copy-mode leftovers) once
+        every file can be restored exactly from the library."""
+        body = request.get_json(force=True)
+        if not inbox_dir or not body.get("path"):
+            return jsonify({"error": "No path provided"}), 400
+        if not apply_lock.acquire(timeout=120):
+            return jsonify({"error": "An import is being applied; try again in a moment."}), 409
+        try:
+            return jsonify(lifecycle.release_folder(lib, Path(body["path"]), Path(inbox_dir)))
+        except lifecycle.ReleaseRefused as exc:
+            return jsonify({"error": str(exc), "problems": exc.problems}), 409
+        finally:
+            apply_lock.release()
 
     # -- library browse / edit -------------------------------------------
     @app.get("/api/library/albums/<int:album_id>/undo_import")
@@ -448,7 +444,6 @@ def create_app(lib, wi_config, plugin):
             return jsonify({"error": str(exc), **exc.plan.as_json()}), 409
         finally:
             apply_lock.release()
-        grace.forget_album(album_id)
         return jsonify(result)
 
     @app.get("/api/library/listening_groups")

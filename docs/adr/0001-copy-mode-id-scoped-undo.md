@@ -1,5 +1,7 @@
 # Copy-mode import with ID-scoped undo
 
+> **Superseded by ADR-0015** (move mode; Undo Import restores originals from the library).
+
 Beets runs in `copy` mode (`copy: yes` / `move: no`): inbox originals are
 never moved, only copied into the library. This is the plugin's supported
 mode: the whole Approve/undo lifecycle (ADR-0012) exists because the inbox

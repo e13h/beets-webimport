@@ -61,8 +61,9 @@ browser_wait_for(text="Import applied successfully")
   shows an empty `artpath` (`embedart.remove_art_file`).
 - Library tab → Mulan → explorer art block: embedded 1500 × 1500, 4.0 MB
   (the Cover Art Archive image, not iTunes' 1.2 MB one).
-- `ls ".inbox/Mulan (Original Motion Picture Soundtrack)"` lists only the
-  `.m4a` files and `.webimport_imported`: no `cover.jpg`, nothing renamed.
+- The Mulan folder is gone from `.inbox/` (move mode, ADR-0015); no
+  `cover.jpg` was ever written there. Library → Mulan → **Undo import…**
+  puts the four `.m4a` files back byte-identical.
 
 ## Step 3 (optional): Files with their own art — Amazon purchase
 
@@ -88,7 +89,7 @@ each release's art).
 ## Teardown
 
 ```bash
-scripts/dev-reset.sh
+scripts/dev-reset.sh   # undoes every import first: files return to .inbox/
 ```
 
 ## References

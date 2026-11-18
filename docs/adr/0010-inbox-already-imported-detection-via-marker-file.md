@@ -1,5 +1,7 @@
 # 0010: Inbox Already-Imported Detection via Directory Marker File
 
+> **Partly superseded by ADR-0015:** imports no longer write the marker; it remains only on folders imported in copy mode.
+
 > **Superseded by ADR-0012** for the UI behavior: imported folders now
 > live in the Approve tab (renamed from Undo), with "Undo import" /
 > "Confirm import and delete inbox files" actions, a 30-day destructive

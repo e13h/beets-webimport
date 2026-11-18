@@ -39,36 +39,27 @@ record, per ADR-0005), not a fresh path-driven session — avoiding the
 silent-duplicate trap. Two-Phase Edit applies to the Library-tab Reimport
 apply, since those files already exist in Navidrome.
 
-**Grace Period**:
-The configurable, **destructive** auto-delete of inbox originals after an
-import apply. On expiry the plugin performs the same action as Confirm
-Import: inbox files and the marker are removed, making the import
-permanent. Default **30 days**, configurable, and disable-able (then only
-manual confirm removes originals). It does *not* bound undo of the library
-record — undoability is scoped purely by the marker file (see Approve
-Tab). Tracked server-side as wall-clock time from the real
-`album_imported`/`item_imported` event; lost (not enforced) if the plugin
-process restarts before expiry — an accepted, low-priority gap (see
-ADR-0004). Staging Bins share this lifecycle.
-_Avoid_: undo window (the grace period deletes originals; it no longer
-bounds undo)
+**Undo Import**:
+The library album action that puts an import back: every original file
+returns to its inbox path byte-identical (tags, art, checksum, mtime,
+permissions), along with the folder's other files, and the album is
+removed from the library. All-or-nothing, checked by SHA-256 before
+anything changes (restore.py, ADR-0014/0015). Redo is undo, then import.
+_Avoid_: Approve tab, Confirm Import, Grace Period (the copy-mode
+lifecycle it replaced: the inbox held a second copy until confirmed or
+auto-deleted)
 
-**Approve Tab**:
-The inbox view (renamed from Undo) listing every folder bearing a
-`.webimport_imported` marker — i.e. originals whose import is live in the
-library. Shown as "imported N days ago" from the marker. Folders here
-never appear in the Import tab. Two actions: **Undo import** (delete the
-marked album from the library, remove the marker → folder returns to the
-Import tab as unimported) and **Confirm Import**. No reimport here; redo
-is undo-then-reimport.
-_Avoid_: Undo tab (old name), Imported list
+**Companion Files**:
+A folder's non-audio files (cover.jpg, .cue, .log, scans). beets moves
+only audio, so webimport keeps companions whole with the album
+(`original_folder`) and removes them from the inbox after a checked
+import; Undo Import puts them back (lifecycle.py).
 
-**Confirm Import**:
-The Approve Tab action that permanently accepts an import: deletes the
-inbox originals and the marker, leaving the library album untouched.
-Equivalent to Grace Period expiry.
-_Avoid_: delete from inbox (that described the old explicit folder
-deletion, not the accept semantics)
+**Inbox Copy (copy-mode leftover)**:
+A folder imported before move mode, still holding its files and the
+`.webimport_imported` marker. Shown in the Inbox as Imported with
+"Remove inbox copy", which first checks every file can be restored
+exactly from the library (ADR-0015).
 
 **Pending Move**:
 The advisory state of a library item whose metadata was written (phase 1
@@ -163,7 +154,6 @@ into, so the resulting directory matches one intended real album/single
 before beets' own directory-based grouping runs a canonical import on it.
 Chosen over constructing `ImportTask`/`SingletonImportTask` objects
 directly from an arbitrary in-memory file list, so every import — split or
-not — is an ordinary beets import (see ADR-0003). Survives the import and
-shares the Approve Tab lifecycle: a Staging Bin's originals are removed
-only by Confirm Import or Grace Period expiry, same as any album.
+not — is an ordinary beets import (see ADR-0003). Emptied and
+pruned by the import like any inbox folder; Undo Import recreates it.
 _Avoid_: bin (alone), in-memory grouping
