@@ -89,7 +89,7 @@ each release's art).
 ## Teardown
 
 ```bash
-scripts/dev-reset.sh   # undoes every import first: files return to .inbox/
+scripts/dev-reset.sh   # recreates .inbox from .inbox-pristine/
 ```
 
 ## References

@@ -197,9 +197,15 @@ chase them; only real errors matter.
 
 ## Move mode and your inbox files (ADR-0015)
 
-Imports **move** files out of `.inbox/` (your real purchased files) into
-`.library/`. `scripts/dev-reset.sh` therefore first undoes every import
-(`scripts/dev-undo-all.py`: originals back in `.inbox/`, byte-identical)
-and refuses to delete anything if one can't be undone. Albums imported in
-copy mode before ADR-0015 have no stored originals; their inbox copies are
-still there, so `scripts/dev-reset.sh --force` is safe for those.
+Imports **move** files out of `.inbox/` (real purchased files) into
+`.library/`. `scripts/dev-reset.sh` doesn't try to put them back: it
+deletes all dev state, `.inbox` included, and recreates `.inbox` from
+`.inbox-pristine/` (git-ignored; saved from `.inbox` on the first run).
+On macOS that's an APFS clone, so a reset takes well under a second and
+uses no extra disk.
+
+- Added test files? `scripts/dev-reset.sh --save-inbox` makes the current
+  `.inbox` the new initial state. A plain reset refuses (and lists them)
+  if `.inbox` has files the saved state doesn't; `--force` deletes them.
+- To test Undo import, use the Library album's **Undo import…**; the reset
+  never depends on it.

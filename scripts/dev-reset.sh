@@ -1,35 +1,62 @@
 #!/usr/bin/env bash
-# Reset the disposable dev library to a clean slate so the inbox can be
-# imported again from scratch.
+# Reset the dev environment: empty library, and .inbox back to its
+# saved initial state (.inbox-pristine/).
 #
-#   scripts/dev-reset.sh           reset (stops a running dev server first)
-#   scripts/dev-reset.sh --start   reset, then start the dev server
-#   scripts/dev-reset.sh --force   reset even if some imports can't be undone
-#                                  (e.g. copy-mode imports, whose inbox copies
-#                                  are still there)
+#   scripts/dev-reset.sh               reset (stops a running dev server first)
+#   scripts/dev-reset.sh --start       reset, then start the dev server
+#   scripts/dev-reset.sh --save-inbox  make the current .inbox the saved state
+#                                      (after adding test files), then reset
+#   scripts/dev-reset.sh --force       reset even if .inbox has files the saved
+#                                      state doesn't (they're deleted)
 #
-# Imports move files out of .inbox (move mode), so first every album is
-# undone: the original files go back to .inbox byte for byte. If any
-# can't be restored, the reset stops and nothing is deleted.
+# Imports move files out of .inbox, so the reset doesn't try to put them
+# back: it deletes all dev state (library DB, .library/, stored originals,
+# import state, plugin data, log, .inbox) and recreates .inbox from
+# .inbox-pristine/. On macOS the copy is an APFS clone: instant, and no
+# extra disk space until a file changes. The first run saves the current
+# .inbox as .inbox-pristine/.
 #
-# Then removes only repo-local, git-ignored state: the library DB and its
-# migration backups, imported files (.library/), stored originals, beets'
-# import state, plugin data (thumbnails, tags), the import log, and any
-# .webimport_imported markers left from copy-mode imports.
+# .inbox-pristine/ holds real purchased music: it's git-ignored.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 PORT="${DEV_PORT:-8338}"
-start=false
-force=false
+PRISTINE=.inbox-pristine
+start=false force=false save=false
 for arg in "$@"; do
   case "$arg" in
     --start) start=true ;;
     --force) force=true ;;
+    --save-inbox) save=true ;;
     -h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $arg (try --help)" >&2; exit 2 ;;
   esac
 done
+
+clone() {  # clone dir $1 to $2 (copy-on-write where the filesystem allows)
+  cp -cR "$1" "$2" 2>/dev/null || cp -R --reflink=auto "$1" "$2" 2>/dev/null || cp -R "$1" "$2"
+}
+
+# Files in a folder (relative paths), ignoring webimport's own hidden files.
+files() { (cd "$1" && find . -type f ! -name '.*' ! -path '*/.*' | sort); }
+
+if $save || [ ! -d "$PRISTINE" ]; then
+  [ -d .inbox ] || { echo "No .inbox to save." >&2; exit 1; }
+  echo "Saving the current .inbox as the initial state ($PRISTINE/)"
+  rm -rf "$PRISTINE.tmp"
+  clone .inbox "$PRISTINE.tmp"
+  find "$PRISTINE.tmp" \( -name '.webimport*' -o -name '.DS_Store' \) -prune -exec rm -rf {} + 2>/dev/null || true
+  rm -rf "$PRISTINE"
+  mv "$PRISTINE.tmp" "$PRISTINE"
+elif [ -d .inbox ] && ! $force; then
+  extra=$(comm -23 <(files .inbox) <(files "$PRISTINE"))
+  if [ -n "$extra" ]; then
+    echo "These .inbox files aren't in the saved initial state and would be deleted:" >&2
+    echo "$extra" | sed 's/^/  /' >&2
+    echo "Run with --save-inbox to keep them (saves .inbox as the new initial state), or --force to delete them." >&2
+    exit 1
+  fi
+fi
 
 # Deleting the DB under a running server leaves it serving stale state.
 for pid in $(lsof -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true); do
@@ -42,23 +69,11 @@ for pid in $(lsof -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true); do
   fi
 done
 
-if [ -f .config/library.db ]; then
-  echo "Putting imported files back in .inbox"
-  if ! BEETSDIR=./.config .venv/bin/python scripts/dev-undo-all.py; then
-    if $force; then
-      echo "Some imports couldn't be undone (above); --force: deleting anyway." >&2
-    else
-      echo "Some imports couldn't be undone (above); not deleting anything. Use --force if their files are safe elsewhere." >&2
-      exit 1
-    fi
-  fi
-fi
-
-echo "Resetting dev library state"
+echo "Resetting dev state"
 rm -f .config/library.db .config/library.db-*.bak .config/state.pickle .config/beet.log
-rm -rf .library .config/webimport .config/webimport-originals
-markers=$(find .inbox -name .webimport_imported -print -delete 2>/dev/null | wc -l | tr -d ' ')
-echo "Removed $markers import marker(s) from .inbox"
+rm -rf .library .config/webimport .config/webimport-originals .inbox
+clone "$PRISTINE" .inbox
+echo "Restored .inbox: $(files .inbox | wc -l | tr -d ' ') files"
 
 if $start; then
   echo "Starting dev server on port $PORT"

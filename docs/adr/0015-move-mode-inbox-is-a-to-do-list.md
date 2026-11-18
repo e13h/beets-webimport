@@ -37,4 +37,5 @@ marker-writing part of ADR-0010.
   than copy mode was.
 - Singleton imports have no album to undo; Undo Import covers albums.
 - Dev: imports move the repo's `.inbox/` files, so `scripts/dev-reset.sh`
-  undoes every import before deleting anything.
+  recreates `.inbox` from a saved initial state (`.inbox-pristine/`)
+  rather than relying on Undo Import.
