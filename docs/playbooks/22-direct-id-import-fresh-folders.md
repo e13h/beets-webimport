@@ -1,11 +1,5 @@
 # Playbook 22: Direct ID Import on Fresh Inbox Folders
 
-> **Outdated in part (ADR-0015, move mode):** steps that use the Approve/Undo
-> tab, Confirm Import, the grace period, or expect inbox files and a
-> `.webimport_imported` marker to remain after import describe the old
-> copy mode. Now an import empties and prunes the inbox folder, and undo is
-> **Undo import…** on the library album (restores the folder
-> byte-identical). Playbook 03 covers the current flow.
 
 ## Purpose & Scope
 
@@ -126,7 +120,7 @@ a few seconds, well under the broad-search wait):
 
 ```json
 // Tool Call: browser_wait_for
-{ "text": "Awaiting candidate review", "time": 30 }
+{ "text": "Candidates ready for review", "time": 30 }
 ```
 
 ```json
@@ -162,20 +156,13 @@ a few seconds, well under the broad-search wait):
 }
 ```
 
-Wait for full finalization (poll the undo record, not the album list —
-see the timing facts in `docs/agents/dev-environment.md`):
-
-```json
-// Tool Call: browser_click
-{
-  "element": "Undo tab button",
-  "target": "#tabs button[data-tab='undo']"
-}
-```
+Wait for full finalization: the folder leaving the Inbox list, not the
+album appearing in the Library (see the timing facts in
+`docs/agents/dev-environment.md`):
 
 ```json
 // Tool Call: browser_wait_for
-{ "text": "Undoable for", "time": 30 }
+{ "textGone": "Mulan (Original Motion Picture Soundtrack)", "time": 60 }
 ```
 
 Verify filesystem state:
@@ -187,7 +174,7 @@ BEETSDIR=./.config .venv/bin/beet ls -a | wc -l   # 1 album
 
 **Expected Observable Outcome:**
 - Album applied under `.library/unassigned/` with embedded cover art; 1 album in library;
-  undo record present.
+  `.inbox/Mulan (Original Motion Picture Soundtrack)` no longer exists.
 
 ### Step 4: Reset, then Submit a Bogus ID (Retry Error State)
 
@@ -213,7 +200,7 @@ expand the toggle, and submit a bogus ID:
 
 ```json
 // Tool Call: browser_wait_for
-{ "text": "Awaiting candidate review", "time": 30 }
+{ "text": "Candidates ready for review", "time": 30 }
 ```
 
 ```json
@@ -258,7 +245,7 @@ expand the toggle, and submit a bogus ID:
 
 ```json
 // Tool Call: browser_wait_for
-{ "text": "Awaiting candidate review", "time": 30 }
+{ "text": "Candidates ready for review", "time": 30 }
 ```
 
 ```json
@@ -293,7 +280,7 @@ Repeat Step 4 to reach the error state, then instead click
 
 ```json
 // Tool Call: browser_wait_for
-{ "text": "Awaiting candidate review", "time": 60 }
+{ "text": "Candidates ready for review", "time": 60 }
 ```
 
 **Expected Observable Outcome:**
@@ -306,5 +293,5 @@ Repeat Step 4 to reach the error state, then instead click
 ## Teardown
 
 ```bash
-pkill -f "beet webimport" || true
+scripts/dev-reset.sh   # stops the server; .inbox back to its initial state
 ```

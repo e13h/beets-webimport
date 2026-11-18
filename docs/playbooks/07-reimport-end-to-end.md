@@ -1,11 +1,5 @@
 # Playbook 07: Reimport End-to-End
 
-> **Outdated in part (ADR-0015, move mode):** steps that use the Approve/Undo
-> tab, Confirm Import, the grace period, or expect inbox files and a
-> `.webimport_imported` marker to remain after import describe the old
-> copy mode. Now an import empties and prunes the inbox folder, and undo is
-> **Undo import…** on the library album (restores the folder
-> byte-identical). Playbook 03 covers the current flow.
 
 ## Purpose & Scope
 
@@ -17,7 +11,7 @@ This playbook exercises:
 3. Verifying the `--from-scratch` toggle (`input[data-fromscratch]`) visual cues (bold/danger highlighting on check without requiring a blocking modal confirmation).
 4. Providing a `--set field=value` override (`input[data-setlib]`, e.g. `kids`) and verifying it survives `--from-scratch` metadata clearing.
 5. Reviewing and applying reimport candidates in the **Inbox** review pipeline.
-6. Verifying the reimported album enters the **Grace Period** and can be undone from the **Undo** tab (`#tabs button[data-tab="undo"]`).
+6. Verifying **Undo import** after the reimport restores the *original pre-import* files to the inbox byte-identical (the stored originals survive a reimport: beets carries the items' flexible fields over, and reimport sessions never capture new ones; ADR-0014/0015).
 7. Confirming that the temporary global config mutation (`_temporary_import_config` per ADR-0005) is cleanly restored in `finally`, leaving subsequent fresh imports unaffected by stale `from_scratch` or `set_fields` values.
 
 ## References
@@ -66,21 +60,25 @@ graph TD
     B --> C[Step 2: Configure Reimport Modal]
     C --> D[Step 3: Queue Reimport Task in Inbox]
     D --> C2[Step 4: Candidate Review & Diff]
-    C2 --> E[Step 5: Apply & Verify Grace Period + Field Override]
-    E --> F[Step 6: Undo Reimport via Grace Period]
+    C2 --> E[Step 5: Apply & Verify Field Override]
+    E --> F[Step 6: Undo Import Restores the Pre-Import Files]
     F --> G[Step 7: Confirm Config Restoration for Fresh Imports]
 ```
 
 ### Step 0: Seed Initial Test Fixture Album
 
-Import the initial Mulan test album into the disposable library to establish a baseline.
+Import the initial Mulan test album into the disposable library to establish a baseline. First record the inbox files' checksums for Step 6:
+
+```bash
+(cd ".inbox/Mulan (Original Motion Picture Soundtrack)" && shasum -a 256 *.m4a) > "${TMPDIR:-/tmp}/mulan-before.sha"
+```
 
 1. **Navigate to App:**
    - Playwright tool call: `browser_navigate(url="http://localhost:8338")`
    - Playwright tool call: `browser_snapshot()`
 2. **Start Fresh Import:**
-   - Playwright tool call: `browser_click(target="#inbox-dirs .card button[data-start]", element="Start import button for Mulan folder")`
-   - Playwright tool call: `browser_wait_for(text="Awaiting candidate review")`
+   - Playwright tool call: `browser_click(target="#inbox-dirs .card:has-text('Mulan') button[data-start]", element="Start import button for Mulan folder")`
+   - Playwright tool call: `browser_wait_for(text="Candidates ready for review")`
 3. **Review & Force Target MusicBrainz ID:**
    - Playwright tool call: `browser_click(target="#pending-reviews .card button[data-review]", element="Review button for pending Mulan import")`
    - Playwright tool call: `browser_type(target="div#modal-root input[data-mbid]", text="4e929666-952f-473c-baf2-97c9ca6bfbbe")`
@@ -88,11 +86,10 @@ Import the initial Mulan test album into the disposable library to establish a b
    - Playwright tool call: `browser_wait_for(text="Jerry Goldsmith, Matthew Wilder & David Zippel")`
 4. **Apply Candidate 0:**
    - Playwright tool call: `browser_click(target="div#modal-root .candidate:first-child button[data-select]", element="Select candidate button")`
-   - Playwright tool call: `browser_click(target='#tabs button[data-tab="undo"]', element="Undo tab button")`
-   - Playwright tool call: `browser_wait_for(text="Undoable for")`
+   - Playwright tool call: `browser_wait_for(textGone="Mulan (Original Motion Picture Soundtrack)", time=60)` (the import is done when its folder leaves the inbox)
 5. **Expected Outcome:**
    - Album is fully imported into `.library/` with default `navidrome_library: unassigned`.
-   - Undo record exists in `#undo-list`.
+   - `.inbox/Mulan (Original Motion Picture Soundtrack)` no longer exists (move mode).
 
 ---
 
@@ -208,7 +205,7 @@ Import the initial Mulan test album into the disposable library to establish a b
    ```json
    // 1. Wait for pending review task to appear in Inbox tab
    browser_wait_for({
-     "text": "Awaiting candidate review"
+     "text": "Candidates ready for review"
    })
    ```
    ```json
@@ -248,11 +245,11 @@ Import the initial Mulan test album into the disposable library to establish a b
 
 ---
 
-### Step 5: Apply Reimport and Verify Grace Period & `--set` Survival
+### Step 5: Apply Reimport and Verify `--set` Survival
 
 1. **User Action:**
    - Select candidate 0 to apply the reimport.
-   - Verify that the album updates in the Library tab with the `--set` value (`navidrome_library=kids`) and that a new Grace Period undo record is created.
+   - Verify that the album updates in the Library tab with the `--set` value (`navidrome_library=kids`).
 2. **Playwright Tool Calls:**
    ```json
    // 1. Select and apply candidate 0
@@ -262,85 +259,57 @@ Import the initial Mulan test album into the disposable library to establish a b
    })
    ```
    ```json
-   // 2. Switch to Undo tab to verify Grace Period entry
-   browser_click({
-     "target": "#tabs button[data-tab=\"undo\"]",
-     "element": "Undo tab button"
-   })
-   ```
-   ```json
-   // 3. Wait for undo card to appear
-   browser_wait_for({
-     "text": "Undoable for"
-   })
-   ```
-   ```json
-   // 4. Snapshot Undo tab
-   browser_snapshot()
-   ```
-   ```json
-   // 5. Switch to Library tab to verify field override survival
+   // 2. Switch to Library tab to verify field override survival
    browser_click({
      "target": "#tabs button[data-tab=\"library\"]",
      "element": "Library tab button"
    })
    ```
    ```json
-   // 6. Wait for album grid and verify badge text
+   // 3. Wait for album grid and verify badge text
    browser_wait_for({
      "text": "kids"
    })
    ```
    ```json
-   // 7. Snapshot updated Library grid
    browser_snapshot()
    ```
 3. **Expected Observable Outcome:**
-   - Reimport applies through the standard pipeline: existing tags were wiped by `--from-scratch`, fresh MusicBrainz metadata was written, and `navidrome_library: kids` was applied.
+   - Reimport applies through the standard pipeline: existing tags were wiped by `--from-scratch`, fresh MusicBrainz metadata was written, and `navidrome_library: kids` was applied (files now under `.library/kids/…`).
    - The album's `.lib-badge` on the library tile displays `kids`, confirming `--set` survived `--from-scratch`.
-   - In `#tab-undo`, a card appears displaying the reimported album with countdown timer `Undoable for ...s` and `button[data-undo]`.
+   - The items still carry their stored originals: `BEETSDIR=./.config .venv/bin/beet ls -f '$original_file' Mulan | grep -c sha256` prints `4`.
 
 ---
 
-### Step 6: Trigger Grace Period Undo on Reimport
+### Step 6: Undo Import Restores the Pre-Import Files
 
-1. **User Action:**
-   - Click the **Undo** button in `#tab-undo` to undo the reimport.
-2. **Playwright Tool Calls:**
+Undo import after a reimport goes back to the files as they were before the *first* import, not to the state before the reimport.
+
+1. **Playwright Tool Calls:**
    ```json
-   // 1. Switch to Undo tab
-   browser_click({
-     "target": "#tabs button[data-tab=\"undo\"]",
-     "element": "Undo tab button"
-   })
+   browser_click({ "target": ".album-tile:has-text('Mulan')", "element": "Mulan album tile" })
    ```
    ```json
-   // 2. Click Undo on the reimport record
-   browser_click({
-     "target": "#undo-list .card button[data-undo]",
-     "element": "Undo button"
-   })
+   browser_click({ "target": "[data-undo-import]", "element": "Undo import button" })
    ```
    ```json
-   // 3. Wait for undo list to become empty
-   browser_wait_for({
-     "text": "Nothing pending undo."
-   })
+   browser_wait_for({ "text": "Undo import of" })
    ```
    ```json
-   // 4. Switch to Library tab and verify album removal
-   browser_click({
-     "target": "#tabs button[data-tab=\"library\"]",
-     "element": "Library tab button"
-   })
+   browser_click({ "target": "[data-undo-confirm]", "element": "Confirm undo" })
    ```
    ```json
-   browser_snapshot()
+   browser_wait_for({ "text": "back in the inbox" })
+   ```
+2. **Verify:**
+   ```bash
+   (cd ".inbox/Mulan (Original Motion Picture Soundtrack)" && shasum -a 256 -c "${TMPDIR:-/tmp}/mulan-before.sha")
+   ls .library/kids 2>/dev/null || echo "library files removed"
    ```
 3. **Expected Observable Outcome:**
-   - Undo executes `remove(delete=True)` on the specific DB IDs captured during the reimport apply (ADR-0001).
-   - Undo card disappears, showing `Nothing pending undo.`.
-   - Album is removed from the SQLite database and destination `.library/` directory.
+   - The undo panel lists `.../.inbox/Mulan (Original Motion Picture Soundtrack)` as the folder to restore, with no problems.
+   - `shasum -c` prints `OK` for all 4 files: byte-identical to before the first import, despite the reimport's `--from-scratch` retag and move to `kids/`.
+   - The album is gone from the Library tab; `library files removed`.
 
 ---
 
@@ -359,16 +328,16 @@ Import the initial Mulan test album into the disposable library to establish a b
    })
    ```
    ```json
-   // 2. Start import on inbox directory
+   // 2. Start import on the Mulan folder (back in the inbox after Step 6)
    browser_click({
-     "target": "#inbox-dirs .card button[data-start]",
+     "target": "#inbox-dirs .card:has-text('Mulan') button[data-start]",
      "element": "Start import button"
    })
    ```
    ```json
    // 3. Wait for pending review
    browser_wait_for({
-     "text": "Awaiting candidate review"
+     "text": "Candidates ready for review"
    })
    ```
    ```json
@@ -408,8 +377,14 @@ Import the initial Mulan test album into the disposable library to establish a b
 ## Failure Modes & Diagnostics
 
 1. **Transient MusicBrainz / Cover Art Archive 502s:**
-   - CAA occasionally returns HTTP 502/503 during art fetch. If "Resolving art…" or "No Cover Art Available" appears, verify network proxy settings or retry candidate selection.
+   - archive.org occasionally returns HTTP 502 for Cover Art Archive images (retried server-side). If the Cover Art Archive option says it couldn't be reached, click its Retry button.
 2. **Task Queue Polling Race:**
    - When forcing a new MusicBrainz ID via `search_id`, the worker pops the old task and creates a new one. The browser UI waits for the new task to be registered before presenting candidates.
 3. **Stale Config Leakage:**
    - If a fresh import unexpectedly gets assigned `navidrome_library: kids` or wipes non-standard tags, check `beetsplug/webimport/reimport.py`'s `_temporary_import_config` context manager for proper restoration on exit.
+
+## Teardown
+
+```bash
+scripts/dev-reset.sh   # stops the server; .inbox back to its initial state
+```

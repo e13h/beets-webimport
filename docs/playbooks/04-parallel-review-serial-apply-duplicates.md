@@ -1,11 +1,5 @@
 # Playbook 04: Parallel Review + Serial Apply + Duplicates
 
-> **Outdated in part (ADR-0015, move mode):** steps that use the Approve/Undo
-> tab, Confirm Import, the grace period, or expect inbox files and a
-> `.webimport_imported` marker to remain after import describe the old
-> copy mode. Now an import empties and prunes the inbox folder, and undo is
-> **Undo import…** on the library album (restores the folder
-> byte-identical). Playbook 03 covers the current flow.
 
 **Purpose:** Verify parallel candidate review across concurrent inbox submissions, serialized import application via the Apply Lock (ADR-0006), and duplicate conflict resolution (`get_duplicate_action`) in the web UI.
 
@@ -23,10 +17,8 @@ Before running the server, wipe any previous library database / files and create
 
 ```bash
 scripts/dev-reset.sh
-cp -r .inbox/Mulan .inbox/Mulan_dup
+cp -cR ".inbox/Mulan (Original Motion Picture Soundtrack)" .inbox/Mulan_dup
 ```
-
-*(Note: If `.inbox` contains `Mulan (Original Motion Picture Soundtrack)`, copy that directory to `.inbox/Mulan_dup`.)*
 
 ### 2. Start the Server
 
@@ -94,7 +86,7 @@ The playbook queries live MusicBrainz and Cover Art Archive endpoints for metada
 2. **Playwright MCP Calls:**
    ```json
    // Wait for pending review tasks to be registered
-   browser_wait_for(text="Awaiting candidate review")
+   browser_wait_for(text="Candidates ready for review")
    // Capture snapshot of pending review queue
    browser_snapshot()
    ```
@@ -102,7 +94,7 @@ The playbook queries live MusicBrainz and Cover Art Archive endpoints for metada
    - `#pending-reviews` contains **two separate cards** simultaneously:
      - One card for the original album (e.g. path ending in `Mulan`).
      - One card for the duplicate album (`Mulan_dup`).
-   - Both cards display status text `"Awaiting candidate review"` and have an enabled `button[data-review]` ("Review").
+   - Both cards display status text `"Candidates ready for review"` and have an enabled `button[data-review]` ("Review").
    - Confirms parallel candidate review across sessions per `CONTEXT.md`.
 
 ---
@@ -120,7 +112,7 @@ The playbook queries live MusicBrainz and Cover Art Archive endpoints for metada
    browser_click(target=".modal button[data-use-id]")
 
    // Wait for the re-review task to appear with resolved candidates
-   browser_wait_for(text="Awaiting candidate review")
+   browser_wait_for(text="Candidates ready for review")
 
    // Open the re-reviewed task
    browser_click(target="#pending-reviews .card:first-child button[data-review]")
@@ -139,18 +131,20 @@ The playbook queries live MusicBrainz and Cover Art Archive endpoints for metada
 
 ### Step 5: Verify First Album Landed in the Library
 
-1. **User Action:** Verify that the first album completed import and is tracked in the Undo list and filesystem.
+1. **User Action:** Verify that the first album finished importing: its inbox folder is gone (move mode empties it once files are moved, tagged and checked) and it's in the Library.
 2. **Playwright MCP Calls:**
    ```json
-   // Switch to Undo tab to verify import completion
-   browser_click(target="nav#tabs button[data-tab='undo']")
+   // The applied folder disappears from the Inbox list when the import is done
+   browser_wait_for(textGone="Mulan (Original Motion Picture Soundtrack)", time=60)
+   browser_click(target="nav#tabs button[data-tab='library']")
    browser_snapshot()
    // Return to Inbox tab
    browser_click(target="nav#tabs button[data-tab='inbox']")
    ```
+   (Wait for the folder name exactly as listed, not `Mulan_dup`, which is still pending review.)
 3. **Expected Observable Outcome:**
-   - `#undo-list` contains an undo entry for `"Jerry Goldsmith, Matthew Wilder & David Zippel - Mulan (Original Motion Picture Soundtrack)"`.
-   - Files exist on disk under `.library/`.
+   - The Library tab shows one Mulan album tile.
+   - `.inbox/Mulan (Original Motion Picture Soundtrack)` no longer exists; the files are under `.library/`.
    - The library database contains exactly 1 album.
 
 ---
@@ -168,7 +162,7 @@ The playbook queries live MusicBrainz and Cover Art Archive endpoints for metada
    browser_click(target=".modal button[data-use-id]")
 
    // Wait for re-review task to appear
-   browser_wait_for(text="Awaiting candidate review")
+   browser_wait_for(text="Candidates ready for review")
 
    // Open the re-reviewed candidate modal
    browser_click(target="#pending-reviews .card button[data-review]")
@@ -248,8 +242,10 @@ The playbook queries live MusicBrainz and Cover Art Archive endpoints for metada
 
 After completing verification:
 
-1. Remove the temporary duplicate directory from the inbox:
+1. Remove the temporary duplicate directory (skipped as a duplicate, so its
+   files are still in the inbox), then reset. The reset refuses while
+   `Mulan_dup` exists, since it isn't in the saved initial inbox:
    ```bash
    rm -rf .inbox/Mulan_dup
+   scripts/dev-reset.sh   # stops the server; .inbox back to its initial state
    ```
-2. Stop the `beet webimport` server process.

@@ -113,10 +113,12 @@ normally instead" (`[data-search-normally]`), or set
 The import runs in a worker thread; the Flask request thread is the "browser".
 Two races to design around when scripting:
 1. **Album appears in `/api/library/albums` BEFORE the import finalizes.**
-   `task.add(lib)` runs during review-apply, but art embedding and the
-   `album_imported` event (→ copy-mode marker) fire later in
-   `manipulate_files`/`finalize`. To know an import is *fully* done, poll
-   `/api/undo` (the undo record), not the album list.
+   `task.add(lib)` runs during review-apply, but moving the files, art
+   embedding and the originals check happen later, in the
+   `import_task_files` stage. The last step there removes the folder from
+   the inbox (move mode, `lifecycle.finish_task`), so to know an import is
+   done, wait for its folder to disappear from `/api/inbox`
+   (`inbox_dirs`) / the Inbox tab, not for the album to appear.
 2. **`search_id` re-review reuses the pending queue.** After POSTing a
    `search_id` decision, the old task lingers in `pending_review` for a beat
    before the worker pops it and registers the *new* task. Posting to the old

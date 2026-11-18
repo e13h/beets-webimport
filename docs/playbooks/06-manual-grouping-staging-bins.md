@@ -1,18 +1,12 @@
 # Playbook 06: Manual Grouping via Staging Bins
 
-> **Outdated in part (ADR-0015, move mode):** steps that use the Approve/Undo
-> tab, Confirm Import, the grace period, or expect inbox files and a
-> `.webimport_imported` marker to remain after import describe the old
-> copy mode. Now an import empties and prunes the inbox folder, and undo is
-> **Undo import…** on the library album (restores the folder
-> byte-identical). Playbook 03 covers the current flow.
 
 ## Purpose & Scope
 
 This playbook verifies the **Manual Grouping** workflow via ad-hoc **Staging Bins**, as specified in `.scratch/webimport/spec.md` (User Stories 9–12), **ADR-0003** (Staging-directory manual grouping over in-memory task construction), and **ADR-0009** (Playwright against a real running server).
 
 ### Scenario
-An inbox directory contains a synthetic "burned playlist" rip—audio tracks originating from more than one distinct release (e.g., several tracks from the *Mulan* soundtrack mixed with a standalone single track). Importing this folder directly would cause beets to mistakenly attempt matching it as a single release. 
+An inbox directory contains a "burned playlist"—audio tracks originating from more than one distinct release (two tracks from the *Mulan* soundtrack mixed with a B.o.B track). Importing this folder directly would cause beets to mistakenly attempt matching it as a single release. 
 
 Instead, the user splits the mixed directory into two or more ad-hoc **Staging Bins** (e.g., `bin_0` for the multi-track album and `bin_1` for the singleton track). Each bin is staged into its own directory under `.inbox/_grouped/<group_id>/bin_N/`, triggering standard directory-based beets imports per ADR-0003.
 
@@ -21,7 +15,8 @@ Instead, the user splits the mixed directory into two or more ad-hoc **Staging B
 2. **Independent Import Tasks**: Each bin produces its own independent review card in the UI's "Pending review" section (not a single merged import).
 3. **Candidate Review & Apply**: Both the multi-track album bin and the singleton bin can be independently reviewed, matched (or forced via MBID / as-is), and applied.
 4. **Library Placement**: Each bin is imported into the library as its own separate canonical entity under `.library/` with default metadata (`navidrome_library: unassigned`).
-5. **Grace Period Persistence**: Staging bins under `.inbox/_grouped/` persist on disk through the Grace Period after apply (per ADR-0003 and Spec Story 11), ensuring that undo does not discard manual splitting work.
+5. **Bins Emptied on Import** (ADR-0015, move mode): each bin's files move into the library and the emptied bin folders are pruned from `.inbox/_grouped/`.
+6. **Undo Recreates the Bin**: Undo import on the album bin puts its files back in `.inbox/_grouped/<id>/bin_0/` byte-identical, so the manual split isn't lost. (The singleton bin can't be undone: singletons have no album, a known gap.)
 
 ---
 
@@ -39,40 +34,19 @@ Running this playbook against live MusicBrainz and Cover Art Archive lookups req
 ## Prerequisites & Environment Setup
 
 ### 1. Reset Disposable Library and State
-Before running the server, wipe existing library databases, temporary state, and previous inbox grouping directories:
 
 ```bash
 scripts/dev-reset.sh
-rm -rf .inbox
-mkdir -p .inbox
 ```
 
-### 2. Create Mixed Playlist Test Fixture
-Generate a mixed inbox directory `.inbox/Burned_Playlist/` containing tracks from multiple distinct releases:
-- 2 tracks from *Mulan* (e.g., "Honor to Us All", "Reflection")
-- 1 track from a standalone single (e.g., Carly Rae Jepsen - "Call Me Maybe")
+### 2. Create the Mixed Playlist Fixture
+Clone three real inbox tracks into one folder (`cp -c`: APFS clones, instant). Two are from *Mulan*, one is a B.o.B single; record their checksums for Step 8.
 
 ```bash
-mkdir -p .inbox/Burned_Playlist
-
-# Generate synthetic audio fixtures (or copy test mp3/flac files if present)
-# Note: In a test environment, ffmpeg or touch/sample audio files can be used:
-cat << 'EOF' > /tmp/make_mixed_fixture.py
-import os
-from pathlib import Path
-
-base = Path(".inbox/Burned_Playlist")
-base.mkdir(parents=True, exist_ok=True)
-
-# Create minimal valid MP3 silent frames or sample test files
-# Track 1 & 2: Mulan (Matthew Wilder & David Zippel / Jerry Goldsmith)
-(base / "01 - Honor to Us All.mp3").write_bytes(b"\xff\xfb\x90\x44" + b"\x00" * 1024)
-(base / "02 - Reflection.mp3").write_bytes(b"\xff\xfb\x90\x44" + b"\x00" * 1024)
-
-# Track 3: Standalone single
-(base / "03 - Call Me Maybe.mp3").write_bytes(b"\xff\xfb\x90\x44" + b"\x00" * 1024)
-EOF
-python3 /tmp/make_mixed_fixture.py && rm /tmp/make_mixed_fixture.py
+M=".inbox/Mulan (Original Motion Picture Soundtrack)"
+mkdir .inbox/Burned_Playlist
+cp -c "$M/01 Honor To Us All.m4a" "$M/02 Reflection.m4a" ".inbox/B.o.B/08 Magic [Feat. Rivers Cuomo].mp3" .inbox/Burned_Playlist/
+(cd .inbox/Burned_Playlist && shasum -a 256 *.m4a) > "${TMPDIR:-/tmp}/bin0-before.sha"
 ```
 
 ### 3. Start the Webimport Server
@@ -110,15 +84,15 @@ Navigate to the root URL and verify the `Burned_Playlist` folder is listed in th
 
 ### Step 2: Split Mixed Directory into Staging Bins
 Split the files in `.inbox/Burned_Playlist` into two distinct staging bins:
-- **Bin 0** (Multi-track album): `01 - Honor to Us All.mp3`, `02 - Reflection.mp3`
-- **Bin 1** (Singleton track): `03 - Call Me Maybe.mp3`
+- **Bin 0** (Multi-track album): `01 Honor To Us All.m4a`, `02 Reflection.m4a`
+- **Bin 1** (Singleton track): `08 Magic [Feat. Rivers Cuomo].mp3`
 
 Execute the grouping action via UI interaction or by posting the grouping structure to `/api/inbox/group`:
 
 ```json
 // Tool Call: browser_evaluate
 {
-  "function": "async () => {\n  const inboxData = await (await fetch('/api/inbox')).json();\n  const mixedDir = inboxData.inbox_dirs.find(d => d.includes('Burned_Playlist'));\n  if (!mixedDir) throw new Error('Burned_Playlist not found in inbox');\n  \n  const res = await fetch('/api/inbox/group', {\n    method: 'POST',\n    headers: { 'Content-Type': 'application/json' },\n    body: JSON.stringify({\n      bins: [\n        {\n          files: [\n            `${mixedDir}/01 - Honor to Us All.mp3`,\n            `${mixedDir}/02 - Reflection.mp3`\n          ]\n        },\n        {\n          files: [\n            `${mixedDir}/03 - Call Me Maybe.mp3`\n          ],\n          singleton: true\n        }\n      ]\n    })\n  });\n  return await res.json();\n}"
+  "function": "async () => {\n  const inboxData = await (await fetch('/api/inbox')).json();\n  const mixedDir = inboxData.inbox_dirs.map(d => d.path).find(p => p.includes('Burned_Playlist'));\n  if (!mixedDir) throw new Error('Burned_Playlist not found in inbox');\n  \n  const res = await fetch('/api/inbox/group', {\n    method: 'POST',\n    headers: { 'Content-Type': 'application/json' },\n    body: JSON.stringify({\n      bins: [\n        {\n          files: [\n            `${mixedDir}/01 Honor To Us All.m4a`,\n            `${mixedDir}/02 Reflection.m4a`\n          ]\n        },\n        {\n          files: [\n            `${mixedDir}/08 Magic [Feat. Rivers Cuomo].mp3`\n          ],\n          singleton: true\n        }\n      ]\n    })\n  });\n  return await res.json();\n}"
 }
 ```
 
@@ -134,7 +108,7 @@ Wait for both staging bins to be processed by the worker pool and appear in the 
 ```json
 // Tool Call: browser_wait_for
 {
-  "text": "Awaiting candidate review",
+  "text": "Candidates ready for review",
   "time": 30
 }
 ```
@@ -181,7 +155,7 @@ Apply match (either by selecting candidate 0 or using search ID override):
 **Expected Outcome:**
 - Review modal closes.
 - The `bin_0` card disappears from `#pending-reviews`.
-- Server acquires Apply Lock, executes copy-mode import for `bin_0`, and emits `album_imported`.
+- Server acquires Apply Lock and moves `bin_0`'s files into the library (2 of the release's tracks: a partial album, kept together as the album).
 
 ---
 
@@ -248,70 +222,64 @@ Navigate to the "Library" tab to confirm both entities were imported into the li
 **Expected Outcome:**
 - Two distinct album records exist in the library.
 - Both albums have `navidrome_library` attribute set to `unassigned`.
-- Files exist under `.library/` structured according to beets path templates (e.g. `.library/unassigned/Disney/Mulan/...` and `.library/unassigned/Carly Rae Jepsen/...`).
+- Files exist under `.library/` structured according to beets path templates (e.g. `.library/unassigned/Jerry Goldsmith, …/Mulan_ …/` and `.library/unassigned/Non-Album/B.o.B/`).
 
 ---
 
-### Step 7: Verify Staging Bins Persist Through Grace Period
-Confirm that Staging Bins under `.inbox/_grouped/<id>/` have **not** been immediately deleted upon apply, ensuring undo safety per ADR-0003 and Spec Story 11.
+### Step 7: Verify the Bins Were Emptied
+
+```bash
+ls -R .inbox/_grouped 2>/dev/null || echo "no staging bins left"
+```
+
+**Expected Outcome:**
+- `no staging bins left` (or an empty `_grouped/`): both bins' files moved into the library and the emptied bin folders were pruned.
+- The Inbox tab shows neither bin.
+
+---
+
+### Step 8: Undo Import of the Album Bin Recreates It
+Library tab → the Mulan album → **Undo import…** → confirm.
 
 ```json
 // Tool Call: browser_click
-{
-  "element": "Undo Tab Button",
-  "target": "#tabs button[data-tab='undo']"
-}
+{ "element": "Library tab", "target": "#tabs button[data-tab='library']" }
 ```
 
 ```json
-// Tool Call: browser_snapshot
-{}
+// Tool Call: browser_click
+{ "element": "Mulan album tile", "target": ".album-tile:has-text('Mulan')" }
 ```
 
 ```json
-// Tool Call: browser_evaluate
-{
-  "function": "async () => {\n  const undoList = await (await fetch('/api/undo')).json();\n  return undoList;\n}"
-}
+// Tool Call: browser_click
+{ "element": "Undo import", "target": "[data-undo-import]" }
 ```
 
-Verify the filesystem via bash / python:
+```json
+// Tool Call: browser_click
+{ "element": "Confirm undo", "target": "[data-undo-confirm]" }
+```
+
+```json
+// Tool Call: browser_wait_for
+{ "text": "back in the inbox", "time": 30 }
+```
+
 ```bash
-# Verify directories and files still exist under .inbox/_grouped/
-ls -la .inbox/_grouped/*/*
+(cd .inbox/_grouped/*/bin_0 && shasum -a 256 -c "${TMPDIR:-/tmp}/bin0-before.sha")
 ```
 
 **Expected Outcome:**
-- Undo tab lists the recent imports with active countdown timers.
-- The `.inbox/_grouped/<id>/bin_0` and `.inbox/_grouped/<id>/bin_1` folders and audio files still exist on disk throughout the Grace Period duration.
-
----
-
-### Step 8: Verify Staging Bins Cleaned Up on Grace Period Expiry
-After the Grace Period expires (or after expiry pruning is triggered), verify that the staging bins under `.inbox/_grouped/` are automatically removed from disk without leaving empty directories behind, while regular library albums remain intact.
-
-```json
-// Tool Call: browser_evaluate
-{
-  "function": "async () => {\n  // Fetch undo list to trigger pruning or wait for expiry\n  const undoList = await (await fetch('/api/undo')).json();\n  const inboxData = await (await fetch('/api/inbox')).json();\n  return { undoList, inboxData };\n}"
-}
-```
-
-Verify the filesystem via bash / python:
-```bash
-# Verify staging bins are gone once grace period has elapsed
-ls -la .inbox/_grouped 2>/dev/null || echo "Cleaned up"
-```
-
-**Expected Outcome:**
-- Staging bins under `.inbox/_grouped/<id>/` are deleted once the Grace Period elapses.
-- Library files and database entries for the imported albums remain in place.
+- The undo panel lists `.../.inbox/_grouped/<id>/bin_0` as the folder to restore.
+- `shasum -c` prints `OK` for both tracks: the bin is back exactly as split.
+- The Inbox tab shows `bin_0` again, ready to re-import; the B.o.B singleton stays in the library (singletons have no Undo import).
 
 ---
 
 ## Teardown
 
-Stop the `beet webimport` process:
+`Burned_Playlist` and the bins aren't in the saved initial inbox, so the reset needs `--force` to delete them:
 ```bash
-pkill -f "beet webimport" || true
+scripts/dev-reset.sh --force
 ```

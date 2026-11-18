@@ -76,7 +76,7 @@ graph TD
    ```
    ```json
    // browser_wait_for
-   { "text": "Awaiting candidate review" }
+   { "text": "Candidates ready for review" }
    ```
 2. **Review and Apply Candidate:**
    ```json
