@@ -53,8 +53,8 @@ musicbrainz:
 
 import:
   write: yes
-  copy: yes
-  move: no
+  copy: no
+  move: yes # webimport keeps each file's original bytes; Undo import restores them (ADR-0015)
   resume: ask
   incremental: no # yes silently skips re-imports after an undo; revisit with smarter caching
   quiet_fallback: skip
