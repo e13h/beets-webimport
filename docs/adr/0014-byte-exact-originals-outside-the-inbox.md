@@ -25,3 +25,16 @@ still hold until undo-by-restore exists and move mode is switched on.
 - The store holds private purchase tags (Apple ID) as the original file
   did; they're never shown in the UI.
 - Originals from reviews that never imported are pruned at server start.
+
+## Undo import from the library (step two)
+
+The library album modal's **Undo import** (`restore.py`) puts every file
+back at its original inbox path, byte-identical, with its original mtime
+and permissions, then removes the album (`remove(delete=True)` by ID), the
+inbox marker, and the stored originals. It is all-or-nothing: a dry run
+lists anything that blocks an exact restore (no stored original, a
+different file already at the destination, a destination outside the
+inbox), and every file is rebuilt and SHA-256-checked into a temp file
+before anything is moved or removed. A destination already holding the
+identical file (copy mode) is left alone, so it works before and after the
+switch to `move: yes`.

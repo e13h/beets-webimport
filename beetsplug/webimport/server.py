@@ -11,7 +11,7 @@ from beets import config as beets_config
 from beets import context as beets_context
 from beets.util import syspath
 
-from . import artchoice, coverart, itunes, library, originals, reimport, snapshot, tagpreview, tags
+from . import artchoice, coverart, itunes, library, originals, reimport, restore, snapshot, tagpreview, tags
 from .grace import GracePeriodManager
 from .queue import InboxWorkerPool, ReviewManager
 from .session import WebImportSession
@@ -422,6 +422,35 @@ def create_app(lib, wi_config, plugin):
         return jsonify({"ok": ok})
 
     # -- library browse / edit -------------------------------------------
+    @app.get("/api/library/albums/<int:album_id>/undo_import")
+    @_safe
+    def api_library_undo_plan(album_id):
+        """Dry run of Undo import: where each file would go and anything
+        that prevents an exact restore."""
+        album = lib.get_album(album_id)
+        if album is None:
+            return jsonify({"error": "no such album"}), 404
+        return jsonify(restore.plan(album, inbox_dir).as_json())
+
+    @app.post("/api/library/albums/<int:album_id>/undo_import")
+    @_safe
+    def api_library_undo_import(album_id):
+        """Put the album's original files back in the inbox (byte for byte)
+        and remove the album from the library."""
+        album = lib.get_album(album_id)
+        if album is None:
+            return jsonify({"error": "no such album"}), 404
+        if not apply_lock.acquire(timeout=120):
+            return jsonify({"error": "An import is being applied; try again in a moment."}), 409
+        try:
+            result = restore.undo(lib, album, inbox_dir)
+        except restore.UndoRefused as exc:
+            return jsonify({"error": str(exc), **exc.plan.as_json()}), 409
+        finally:
+            apply_lock.release()
+        grace.forget_album(album_id)
+        return jsonify(result)
+
     @app.get("/api/library/listening_groups")
     def api_library_listening_groups():
         return jsonify(library.get_listening_groups(lib))

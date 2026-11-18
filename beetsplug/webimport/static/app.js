@@ -1087,6 +1087,56 @@ $("#lib-search")?.addEventListener("input", (e) => {
   searchDebounce = setTimeout(() => loadLibrary(e.target.value), 300);
 });
 
+// Undo import (restore.py): dry run first, then an explicit confirm.
+async function showUndoImportPanel(panel, albumId, detail, onDone) {
+  panel.hidden = false;
+  panel.innerHTML = '<div class="muted"><span class="spinner"></span> Checking the original files…</div>';
+  let plan;
+  try {
+    plan = await api(`/api/library/albums/${albumId}/undo_import`);
+  } catch (err) {
+    panel.innerHTML = `<div class="explorer-warn">Couldn't check: ${escapeHtml(err.message)}</div>`;
+    return;
+  }
+  const folders = plan.folders.map((f) => `<div class="mono">${escapeHtml(f)}</div>`).join("");
+  if (!plan.ok) {
+    panel.innerHTML = `
+      <div class="explorer-warn">This album can't be undone exactly, so nothing will be changed:</div>
+      <ul class="undo-problems">${plan.problems.map((p) => `<li>${escapeHtml(p)}</li>`).join("")}</ul>
+      <div class="row"><button class="secondary" data-undo-cancel>Close</button></div>`;
+    panel.querySelector("[data-undo-cancel]").addEventListener("click", () => { panel.hidden = true; });
+    return;
+  }
+  const n = plan.files.length;
+  const present = plan.already_in_inbox;
+  panel.innerHTML = `
+    <div><strong>Undo import of ${escapeHtml(detail.fields.album)}?</strong></div>
+    <div class="muted">
+      ${n === 1 ? "The original file goes" : `The ${n} original files go`} back to the inbox exactly as before import
+      (same tags, art and checksums), and the album is removed from the library, including its files in the music folder.
+      ${present === n ? (n === 1 ? " It's already in the inbox unchanged, so it's left as it is." : " They're already in the inbox unchanged, so they're left as they are.")
+        : present ? ` ${present} of them ${present === 1 ? "is" : "are"} already in the inbox unchanged and left as ${present === 1 ? "it is" : "they are"}.` : ""}
+    </div>
+    <div class="muted">Back to:</div>${folders}
+    <div class="row">
+      <button class="danger" data-undo-confirm>Undo import</button>
+      <button class="secondary" data-undo-cancel>Cancel</button>
+    </div>`;
+  panel.querySelector("[data-undo-cancel]").addEventListener("click", () => { panel.hidden = true; });
+  panel.querySelector("[data-undo-confirm]").addEventListener("click", async (e) => {
+    e.target.disabled = true;
+    const toast = createProgressToast(`Undoing import of ${detail.fields.album}…`);
+    try {
+      const r = await api(`/api/library/albums/${albumId}/undo_import`, { method: "POST" });
+      toast.done(`Undone: ${r.files.length} file${r.files.length === 1 ? "" : "s"} back in the inbox.`);
+      onDone();
+    } catch (err) {
+      e.target.disabled = false;
+      toast.error(`Undo failed (nothing was changed): ${err.message}`);
+    }
+  });
+}
+
 async function openAlbumDetail(albumId) {
   let detail;
   try {
@@ -1105,7 +1155,9 @@ async function openAlbumDetail(albumId) {
       </label>
       <button data-save-album>Save (auto-move if path changes)</button>
       <button class="secondary" data-reimport>Reimport…</button>
+      <button class="secondary danger" data-undo-import>Undo import…</button>
     </div>
+    <div class="undo-panel" data-undo-panel hidden></div>
     <div data-explorer></div>`;
 
   const saveAlbumWithConflict = async (conflictResolution = null) => {
@@ -1141,6 +1193,14 @@ async function openAlbumDetail(albumId) {
   container.querySelector("[data-reimport]").addEventListener("click", () => {
     backdrop.close();
     openReimport([albumId]);
+  });
+
+  container.querySelector("[data-undo-import]").addEventListener("click", () => {
+    showUndoImportPanel(container.querySelector("[data-undo-panel]"), albumId, detail, () => {
+      backdrop.close();
+      loadLibrary($("#lib-search").value);
+      loadInbox();
+    });
   });
 
   renderAlbumExplorer(container.querySelector("[data-explorer]"), albumId);

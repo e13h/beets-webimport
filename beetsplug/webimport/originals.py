@@ -229,7 +229,8 @@ def capture(path: str | bytes) -> dict:
     sha = hashlib.sha256(data).hexdigest()
     folder = store_root() / sha
     s = split(data, path)
-    record = {"sha256": sha, "size": len(data), "name": os.path.basename(path), "source_path": path}
+    record = {"sha256": sha, "size": len(data), "name": os.path.basename(path), "source_path": path,
+              "mtime": os.stat(path).st_mtime, "mode": os.stat(path).st_mode & 0o7777}
     if s is None:
         if not (folder / "full").exists():
             _write_atomic(folder / "full", data)

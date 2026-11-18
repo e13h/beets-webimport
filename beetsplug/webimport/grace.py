@@ -113,6 +113,14 @@ class GracePeriodManager:
                 for r in self._records.values()
             ]
 
+    def forget_album(self, album_id: int) -> None:
+        """Drop undo records for an album removed some other way (library
+        undo), so the Approve tab doesn't try to remove it again."""
+        with self._lock:
+            for rid in [r.record_id for r in self._records.values()
+                        if r.kind == "album" and r.db_id == album_id]:
+                del self._records[rid]
+
     def undo(self, record_id: str) -> bool:
         """Deletes the library-side files + db entry for this record, by
         ID only. Returns False if the record is unknown or already

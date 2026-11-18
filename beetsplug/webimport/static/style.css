@@ -527,3 +527,11 @@ button.small { padding: 2px 8px; font-size: 12px; align-self: flex-start; margin
   .tp-row.tp-header .tp-h-field, .tp-row.tp-header > span:first-child { display: none; }
 }
 .tp-row.lost .tp-before .tp-varies { text-decoration: none; color: var(--muted); }
+
+/* -- Undo import (library album) ------------------------------------------ */
+.undo-panel {
+  margin-top: 10px; padding: 10px 12px; border: 1px solid #e8b04a55; border-radius: 8px;
+  background: rgba(232,176,74,.06); display: flex; flex-direction: column; gap: 6px;
+}
+.undo-panel .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; word-break: break-all; }
+.undo-problems { margin: 0; padding-left: 18px; font-size: 13px; }
