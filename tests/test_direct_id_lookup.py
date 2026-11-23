@@ -330,3 +330,60 @@ def test_reimport_keeps_the_albums_fields_over_config_defaults(lib, library_albu
     assert album["navidrome_library"] == expected
     assert [i["navidrome_library"] for i in album.items()] == [expected]
     assert [i.comments for i in album.items()] == ["new"]  # a default the album didn't have still applies
+
+
+def test_reimport_starts_from_the_stored_originals_tags(lib, tmp_path, create_wav_file, lookups, monkeypatch):
+    import json
+
+    from beets import plugins
+    from beets.library import Item
+    from mediafile import MediaFile
+
+    from beetsplug.webimport import itunes, originals, purchase, reimport
+
+    monkeypatch.setattr(originals, "store_root", lambda: tmp_path / "store")
+    monkeypatch.setattr(itunes, "musicbrainz_match_for_items", lambda items: None)
+    monkeypatch.setattr(purchase, "detect_store", lambda items, folder, library=False: None)
+    orig_send = plugins.send
+
+    def send(event, **kw):
+        if event == "import_task_created":
+            reimport.on_task_created(**kw)
+        return orig_send(event, **kw)
+
+    monkeypatch.setattr(plugins, "send", send)
+    path = create_wav_file(tmp_path / "music" / "X" / "Album" / "01.wav")
+    mf = MediaFile(str(path))
+    mf.update({"title": "Bought Title", "artist": "Store Artist", "album": "Store Album", "track": 1})
+    mf.save()
+    record = originals.capture(path)
+    item = Item.from_path(str(path))
+    item.update({"title": "Edited", "artist": "X", "albumartist": "X", "album": "Album", "label": "Old Label"})
+    item["original_file"] = json.dumps(record)
+    lib.add(item)
+    item.write()
+    album = lib.add_album([item])
+
+    rm = ReviewManager()
+    session = WebImportSession(lib, None, None, f"album_id:{album.id}", rm, None)
+    session.start_from_originals = True
+    payloads = []
+
+    def run():
+        beets_context.set_music_dir(lib.directory)
+        session.run()
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    deadline = time.monotonic() + 10
+    while t.is_alive() and time.monotonic() < deadline:
+        for pr in rm.list_pending():
+            payloads.append(pr["payload"])
+            rm.submit_decision(pr["task_id"], {"action": "asis"})
+        time.sleep(0.02)
+    t.join(timeout=1)
+    assert not t.is_alive()
+    assert payloads[0]["from_original"] is True
+    new = next(iter(lib.items()))
+    assert (new.title, new.artist, new.album, new.label) == ("Bought Title", "Store Artist", "Store Album", "")
+    assert originals.load(new) == record  # still restorable afterwards

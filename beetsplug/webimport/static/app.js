@@ -584,6 +584,16 @@ async function openReview(pr) {
   artChoice.focusCandidate(pr.payload.candidates[0] || null);
   tagPreview.focusCandidate(pr.payload.candidates[0] || null);
 
+  // Reimport: whether it started from the stored originals' tags.
+  if (pr.payload.from_original !== undefined) {
+    const note = document.createElement("div");
+    note.className = "matched-via";
+    note.textContent = pr.payload.from_original
+      ? "Starting from the tags of the original download (stored original). The current tags are replaced by the selected release on top of those."
+      : "Some tracks' originals couldn't be read, so this reimport starts from the current tags.";
+    container.insertBefore(note, list);
+  }
+
   // Matched automatically through the album's Apple Music link.
   const via = pr.payload.matched_via;
   if (via && via.source === "apple_music") {
@@ -1306,8 +1316,8 @@ async function openReimport(albumIds) {
     <div class="row">
       <input type="text" placeholder="MusicBrainz ID or URL (-S)" data-mbid style="flex:1" />
     </div>
-    <div class="row">
-      <label><input type="checkbox" data-fromscratch /> <b>--from-scratch</b> (erase existing metadata first)</label>
+    <div class="row" data-start-row>
+      <span class="muted">Checking for stored originals…</span>
     </div>
     <div class="row">
       <label style="flex:1">navidrome_library
@@ -1322,24 +1332,40 @@ async function openReimport(albumIds) {
   // Prefill the album's current Listening Group, so the field shows what
   // the reimport keeps (blank also keeps it: the config's set_fields
   // defaults don't apply to reimports, ADR-0017).
+  // Albums whose tracks all have a stored original start from the
+  // original download's tags (ADR-0017), so --from-scratch is only
+  // offered when some album has none.
   const libInput = container.querySelector("[data-setlib]");
-  Promise.all(albumIds.map((id) => api(`/api/library/albums/${id}`).then((d) => d.fields.navidrome_library || "")))
-    .then((values) => {
-      const same = new Set(values);
-      if (same.size === 1 && values[0] && !libInput.value) libInput.value = values[0];
+  const startRow = container.querySelector("[data-start-row]");
+  let fsBox = null;
+  const showFromScratch = (note) => {
+    startRow.innerHTML = `<label><input type="checkbox" data-fromscratch /> <b>--from-scratch</b> (erase existing metadata first)</label>
+      ${note ? `<div class="muted">${note}</div>` : ""}`;
+    fsBox = startRow.querySelector("[data-fromscratch]");
+    fsBox.addEventListener("change", () => {
+      fsBox.parentElement.style.fontWeight = fsBox.checked ? "bold" : "normal";
+      fsBox.parentElement.style.color = fsBox.checked ? "var(--danger)" : "inherit";
+    });
+  };
+  Promise.all(albumIds.map((id) => api(`/api/library/albums/${id}`)))
+    .then((details) => {
+      const values = details.map((d) => d.fields.navidrome_library || "");
+      if (new Set(values).size === 1 && values[0] && !libInput.value) libInput.value = values[0];
+      const full = details.filter((d) => d.originals && d.originals.total && d.originals.tracks === d.originals.total);
+      if (full.length === details.length) {
+        startRow.innerHTML = `<span class="muted">Starts from the tags of the original download${details.length > 1 ? "s" : ""} (stored originals), then applies the release you pick.</span>`;
+      } else {
+        showFromScratch(full.length
+          ? `${full.length} of ${details.length} albums have stored originals and start from those; this applies to the others.`
+          : "No stored original for this album, so it starts from the current tags.");
+      }
     })
-    .catch(() => {});
-
-  const fsBox = container.querySelector("[data-fromscratch]");
-  fsBox.addEventListener("change", () => {
-    fsBox.parentElement.style.fontWeight = fsBox.checked ? "bold" : "normal";
-    fsBox.parentElement.style.color = fsBox.checked ? "var(--danger)" : "inherit";
-  });
+    .catch(() => showFromScratch(""));
 
   container.querySelector("[data-go]").addEventListener("click", async () => {
     const raw = container.querySelector("[data-mbid]").value.trim();
     const searchId = raw ? raw.split("/").pop() : null;
-    const fromScratch = fsBox.checked;
+    const fromScratch = !!(fsBox && fsBox.checked);
     const libValue = container.querySelector("[data-setlib]").value.trim();
     const setFields = libValue ? { navidrome_library: libValue } : {};
 

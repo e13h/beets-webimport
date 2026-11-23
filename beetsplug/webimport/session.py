@@ -97,6 +97,9 @@ class WebImportSession(importer.ImportSession):
         # `import.set_fields` defaults don't overwrite what the album has
         # (reimport.keep_library_fields). None: not a reimport.
         self.reimport_set_fields: dict | None = None
+        # Reimport: start from the stored originals' tags where every
+        # track has one (reimport.on_task_created).
+        self.start_from_originals = False
         self._apple_match_tried: set[int] = set()
         # Image bytes chosen in the review, set as the album's art in the
         # file stage (artchoice.on_import_task_files). None: leave art alone.
@@ -196,6 +199,8 @@ class WebImportSession(importer.ImportSession):
             payload["attempted_search_id"] = attempted_search_id
         if matched_via is not None:
             payload["matched_via"] = matched_via
+        if getattr(task, "_wi_from_original", None) is not None:
+            payload["from_original"] = task._wi_from_original
         if purchase_info:
             payload["purchase"] = purchase_info
         pr = self.review_manager.register("match", payload["path"], payload, task=task)

@@ -86,6 +86,9 @@ def get_album_detail(lib, album_id: int) -> dict | None:
     return {
         "id": album.id,
         "fields": _jsonable_fields(album),
+        # Tracks with a stored original (ADR-0014): a reimport starts from
+        # their tags when all have one.
+        "originals": {"tracks": sum(bool(i.get("original_file")) for i in items), "total": len(items)},
         "tracks": [
             {"id": i.id, "track": i.track, "title": i.title, "length": i.length}
             for i in items

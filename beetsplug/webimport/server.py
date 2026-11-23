@@ -95,6 +95,8 @@ def create_app(lib, wi_config, plugin):
                 _import_ctx["imported_album_id"] = album.id
 
     plugin.register_listener("album_imported", _on_album_imported)
+    # Reimport: start from the stored originals' tags (ADR-0017).
+    plugin.register_listener("import_task_created", reimport.on_task_created)
     # Import-time album art (fetchart's automatic step is off). Runs in the
     # serialized apply phase, so it never overlaps across parallel imports.
     plugin.register_listener("import_task_files", artchoice.on_import_task_files)

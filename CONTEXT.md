@@ -38,7 +38,8 @@ the Reimport flow in the Library tab (query-driven against the library
 record, per ADR-0005), not a fresh path-driven session — avoiding the
 silent-duplicate trap. A Reimport keeps the album's Listening Group unless
 the dialog sets one (the config's `set_fields` are for new imports,
-ADR-0017). Two-Phase Edit applies to the Library-tab Reimport
+ADR-0017), and starts from the stored originals' tags when every track
+has one (`--from-scratch` is offered only when not). Two-Phase Edit applies to the Library-tab Reimport
 apply, since those files already exist in Navidrome.
 
 **Undo Import**:

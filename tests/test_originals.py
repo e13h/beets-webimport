@@ -108,3 +108,42 @@ def test_prune_keeps_only_referenced(tmp_path, store, lib):
     assert originals.prune(lib) == 1
     assert [p.name for p in store.iterdir()] == [kept["sha256"]]
     assert orphan["sha256"] not in originals.referenced(lib)
+
+
+@pytest.mark.parametrize("name", ["tone_moov_front.m4a", "tone.mp3", "tone.flac"])
+def test_read_tags_gives_the_originals_tags_without_writing(tmp_path, name):
+    path = tmp_path / name
+    shutil.copy(FIXTURES / name, path)
+    mf = MediaFile(str(path))
+    mf.update({"title": "Bought Title", "artist": "Store Artist", "album": "Store Album", "track": 3})
+    mf.save()
+    record = originals.capture(path)
+    _rewrite_like_an_import(path)
+    before = path.read_bytes()
+    tags = originals.read_tags(record, str(path))
+    assert (tags["title"], tags["artist"], tags["album"], tags["track"]) == ("Bought Title", "Store Artist", "Store Album", 3)
+    assert not tags["mb_albumid"] and not tags["label"]
+    assert path.read_bytes() == before
+
+
+def test_reimport_restores_original_tags_all_or_nothing(tmp_path):
+    from beetsplug.webimport.reimport import restore_original_tags
+
+    items = []
+    for i, title in enumerate(["One", "Two"]):
+        path = tmp_path / f"{i}.mp3"
+        shutil.copy(FIXTURES / "tone.mp3", path)
+        mf = MediaFile(str(path))
+        mf.update({"title": title, "album": "Bought"})
+        mf.save()
+        record = originals.capture(path)
+        _rewrite_like_an_import(path)
+        item = Item.from_path(str(path))
+        item["original_file"] = json.dumps(record)
+        items.append(item)
+    without = Item.from_path(items[1].path)  # no stored original
+    assert restore_original_tags([items[0], without], b"") is False
+    assert items[0].title.startswith("A much longer title")  # untouched
+
+    assert restore_original_tags(items, b"") is True
+    assert [(i.title, i.album, i.label, i.mb_albumid) for i in items] == [("One", "Bought", "", ""), ("Two", "Bought", "", "")]

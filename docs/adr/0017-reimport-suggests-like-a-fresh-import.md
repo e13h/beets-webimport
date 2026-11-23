@@ -45,3 +45,19 @@ server knows whether the review is an inbox folder or a library album.
   the fields set in the Reimport dialog; other `set_fields` keys keep the
   album's and tracks' values (`reimport.keep_library_fields`), and apply
   only where the album had none.
+
+## Starting from the original download's tags
+
+A reimport of an album whose tracks all have a stored original starts from
+the originals' tags, not the current ones: at `import_task_created`, before
+beets' first search, each track's tag fields are replaced in memory by its
+original's (`reimport.restore_original_tags`, read from the rebuilt bytes,
+nothing written). The chosen release is applied on top, so fields the
+release doesn't set (genre, copyright, comments from the store) come from
+the purchase, as for a fresh import of the download; a skipped review
+changes nothing. All tracks or none: an album half from originals would
+match as neither.
+
+`--from-scratch` (clear every tag field, then apply the release) is only
+offered for albums without stored originals. With originals it would
+discard the purchase's tags this is meant to keep.

@@ -282,6 +282,25 @@ def rebuild(record: dict, current_path: str | bytes) -> bytes:
     return data
 
 
+def read_tags(record: dict, current_path) -> dict:
+    """The original file's tag fields (beets' Item tag fields, as
+    Item.read reads them), from the rebuilt bytes; nothing is written."""
+    import io
+
+    from beets.library import Item
+    from mediafile import MediaFile
+
+    data = rebuild(record, current_path)
+    mf = MediaFile(io.BytesIO(data))
+    values = {}
+    for key in Item._media_tag_fields:
+        value = getattr(mf, key, None)
+        if isinstance(value, int) and value.bit_length() > 63:
+            value = 0
+        values[key] = value
+    return values
+
+
 def can_restore(record: dict, current_path) -> bool:
     try:
         rebuild(record, current_path)

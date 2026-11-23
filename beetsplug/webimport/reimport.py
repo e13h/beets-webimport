@@ -7,6 +7,11 @@ temporarily flips beets' own `import.from_scratch` / `import.set_fields`
 config for the duration of the reimport session, then restores the prior
 values -- so it applies via the exact same code path the CLI flags use.
 
+When every track of the album has a stored original (ADR-0014), the
+reimport starts from the original download's tags instead of the current
+ones (`start_from_originals`), as a fresh import of that download would;
+`from_scratch` is only offered for albums without them.
+
 Goes through the same WebImportSession / ReviewManager mechanism as a
 fresh import (per PRD), and suggests what a fresh import of the store
 download would: for an iTunes purchase, the MusicBrainz release(s) linked
@@ -24,11 +29,15 @@ lose their history.
 """
 from __future__ import annotations
 
+import logging
+import os
 from contextlib import contextmanager
 
 import beets
 
 from .session import WebImportSession
+
+log = logging.getLogger("beets.webimport")
 
 
 def _build_query(album_ids: list[int]) -> str:
@@ -99,6 +108,7 @@ def run_reimport(
                 # release(s) linked to their Apple Music listing.
                 session.apple_match_items = apple_music_match
             session.reimport_set_fields = dict(set_fields or {})
+            session.start_from_originals = True
             session.run()
     finally:
         if lock_acquired:
@@ -160,3 +170,52 @@ def _restore(obj, values: dict) -> None:
             changed = True
     if changed:
         obj.store()
+
+
+def on_task_created(session, task):
+    """import_task_created: a reimport of an album whose tracks all have a
+    stored original starts from the originals' tags. Runs before beets'
+    first candidate search, so matching sees the purchase's tags too.
+    Only the task's in-memory items change; nothing is written unless a
+    release is applied."""
+    from .session import WebImportSession
+
+    if (isinstance(session, WebImportSession) and session.query is not None
+            and getattr(session, "start_from_originals", False)
+            and getattr(task, "is_album", False)):
+        task._wi_from_original = restore_original_tags(task.items, session.lib.directory)
+    return None
+
+
+def restore_original_tags(items, music_dir) -> bool:
+    """Set each item's tag fields to its stored original's, all or nothing
+    (an album half from originals would match as neither). False if any
+    track has no original or it can't be rebuilt."""
+    from . import originals
+
+    items = list(items)
+    tags = []
+    for item in items:
+        record = originals.load(item)
+        if not record:
+            return False
+        try:
+            tags.append(originals.read_tags(record, _abs_path(item.path, music_dir)))
+        except Exception:  # noqa: BLE001 -- missing or changed: keep the current tags
+            log.warning("webimport: couldn't read the original of %s", item.path, exc_info=True)
+            return False
+    for item, values in zip(items, tags):
+        item.clear()
+        for key, value in values.items():
+            item[key] = value
+    return True
+
+
+def _abs_path(path, music_dir) -> bytes:
+    """beets 2.x may hand out library-relative paths (see
+    session._resolve_item_paths); this stage can run without the music dir
+    bound, so resolve against the library's own directory."""
+    path = os.fsencode(path)
+    if not os.path.isabs(path) and music_dir:
+        path = os.path.join(os.fsencode(music_dir), path)
+    return path
