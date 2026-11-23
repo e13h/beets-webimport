@@ -219,3 +219,25 @@ uses no extra disk.
   if `.inbox` has files the saved state doesn't; `--force` deletes them.
 - To test Undo import, use the Library album's **Undo import…**; the reset
   never depends on it.
+
+## Backfill test data (ADR-0016)
+
+`scripts/dev-seed-backfill.sh` builds a dev library like the homelab's
+(no stored originals) from `.backfill-fixture/server/` (git-ignored):
+`music/<navidrome_library>/...` are library files copied from the server,
+imported as-is with plain `beet import`; `downloads/` replaces `.inbox`.
+The current fixture covers identical audio (Mulan), a better-quality swap
+(Train, library OGG 112 → MP3), an equal-quality swap (Cinderella, AAC
+256 re-encode), a mixed loose folder (B.o.B) and a new track (Avalon).
+Go back with `scripts/dev-reset.sh --force`.
+
+To copy more from the homelab, read-only:
+`cat list.txt | ssh evan@xwing 'docker exec -i beets tar -C / -cf - -T -' | tar -C .backfill-fixture/server -xf -`
+with paths like `music/main/Artist/Album/01 x.mp3` and `downloads/...`.
+
+**Library paths are relative in the DB.** beets 2.x stores item paths
+relative to `directory` and resolves them per thread
+(`beets.context.set_music_dir`). Background threads must bind it (the
+server's `bind_music_dir`; `backfill.Backfill` does it itself) or every
+`item.path` is relative and file reads fail quietly. Scripts reading
+`library.db` with sqlite must join paths with `/music` themselves.

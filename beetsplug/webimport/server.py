@@ -11,7 +11,7 @@ from beets import config as beets_config
 from beets import context as beets_context
 from beets.util import syspath
 
-from . import artchoice, coverart, itunes, library, lifecycle, originals, reimport, restore, snapshot, tagpreview, tags
+from . import artchoice, backfill, coverart, itunes, library, lifecycle, originals, reimport, restore, snapshot, tagpreview, tags
 from .navidrome import NavidromeClient
 from .pendingmove import Mover
 from .queue import InboxWorkerPool, ReviewManager
@@ -135,6 +135,14 @@ def create_app(lib, wi_config, plugin):
         log.info("webimport: Navidrome integration on (%s as %s)", navidrome.base, navidrome.user)
     mover.start()
     app.config["webimport_mover"] = mover  # for tests / introspection
+
+    # -- Backfill (ADR-0016): attach store downloads to library tracks -----
+    backfiller = (
+        backfill.Backfill(lib, Path(inbox_dir), data_dir / "backfill-cache.sqlite", apply_lock,
+                          thread_init=bind_music_dir)
+        if inbox_dir else None
+    )
+    app.config["webimport_backfill"] = backfiller
 
     # -- inbox scanning / import kickoff -----------------------------------
     def _run_album_import(path: str, search_id: str | None = None):
@@ -436,6 +444,35 @@ def create_app(lib, wi_config, plugin):
             return jsonify({"error": str(exc), "problems": exc.problems}), 409
         finally:
             apply_lock.release()
+
+    @app.get("/api/backfill")
+    def api_backfill_status():
+        """The last inbox-vs-library check, per inbox folder, and any job
+        in progress."""
+        if backfiller is None:
+            return jsonify({"error": "no inbox configured"}), 400
+        return jsonify(backfiller.status())
+
+    @app.post("/api/backfill/scan")
+    def api_backfill_scan():
+        if backfiller is None:
+            return jsonify({"error": "no inbox configured"}), 400
+        if not backfiller.scan():
+            return jsonify({"error": "A check or attach is already running."}), 409
+        return jsonify({"started": True})
+
+    @app.post("/api/backfill/apply")
+    def api_backfill_apply():
+        """Body: {"paths": [inbox folder, ...]}. Attaches or replaces the
+        matched tracks in each folder (re-checked first)."""
+        if backfiller is None:
+            return jsonify({"error": "no inbox configured"}), 400
+        paths = (request.get_json(force=True) or {}).get("paths") or []
+        if not paths:
+            return jsonify({"error": "No folders given"}), 400
+        if not backfiller.apply(paths):
+            return jsonify({"error": "A check or attach is already running."}), 409
+        return jsonify({"started": True})
 
     # -- library browse / edit -------------------------------------------
     @app.get("/api/library/albums/<int:album_id>/undo_import")

@@ -55,6 +55,17 @@ only audio, so webimport keeps companions whole with the album
 (`original_folder`) and removes them from the inbox after a checked
 import; Undo Import puts them back (lifecycle.py).
 
+**Backfill**:
+Attaching store downloads in the inbox to library tracks imported before
+originals were kept, matched by audio checksum or fingerprint (never by
+title). Identical audio is saved as the track's Original File; the same
+recording at equal or better quality is **swapped in** (the library's
+tags and art written onto the download, the old file kept in
+`webimport-replaced/`); worse or unmatched downloads stay in the inbox
+(`backfill.py`, ADR-0016).
+_Avoid_: re-importing to get originals (loses edits and can drop
+Navidrome history)
+
 **Inbox Copy (copy-mode leftover)**:
 A folder imported before move mode, still holding its files and the
 `.webimport_imported` marker. Shown in the Inbox as Imported with

@@ -71,7 +71,7 @@ done
 
 echo "Resetting dev state"
 rm -f .config/library.db .config/library.db-*.bak .config/state.pickle .config/beet.log
-rm -rf .library .config/webimport .config/webimport-originals .inbox
+rm -rf .library .config/webimport .config/webimport-originals .config/webimport-replaced .inbox
 clone "$PRISTINE" .inbox
 echo "Restored .inbox: $(files .inbox | wc -l | tr -d ' ') files"
 

@@ -256,11 +256,12 @@ document.addEventListener("pointerdown", (e) => {
 async function loadInbox() {
   let data;
   try {
-    data = await api("/api/inbox");
+    [data, backfillState] = await Promise.all([api("/api/inbox"), api("/api/backfill").catch(() => null)]);
   } catch (err) {
     showToast(`Failed to load inbox: ${err.message}`, "error");
     return;
   }
+  renderBackfillBar();
 
   const dirsEl = $("#inbox-dirs");
   const livePaths = new Set();
@@ -313,10 +314,12 @@ async function loadInbox() {
 
     card.innerHTML = `
       <div class="path">${badgeHtml}${escapeHtml(path)}</div>
+      ${backfillLineHtml(path)}
       <div class="row">
         ${actionsHtml}
       </div>
       ${idFormHtml}`;
+    card.querySelector("[data-backfill]")?.addEventListener("click", () => openBackfillModal([path]));
 
     const idToggle = card.querySelector("[data-id-toggle]");
     const idForm = card.querySelector("[data-id-form]");
@@ -1358,6 +1361,165 @@ function promptApplyTag(scope, id) {
   const value = prompt("Tag value:");
   if (!value) return;
   applyTag(field, value, scope, id);
+}
+
+// -- Backfill (ADR-0016): store downloads of tracks already in the library --
+let backfillState = null;
+let backfillPolling = false;
+let backfillSeenApply = null;
+
+const plural = (n, word, words = word + "s") => `${n} ${n === 1 ? word : words}`;
+
+function backfillSummary(c) {
+  const parts = [];
+  if (c.attach) parts.push(`${c.attach} identical`);
+  if (c.replace) parts.push(`${c.replace} to swap in`);
+  if (c.keep_library) parts.push(`${c.keep_library} where the library copy is better`);
+  if (c.already_saved) parts.push(`${c.already_saved} already saved`);
+  if (c.duplicate) parts.push(plural(c.duplicate, "duplicate"));
+  if (c.new) parts.push(`${c.new} new`);
+  if (c.unreadable) parts.push(`${c.unreadable} unreadable`);
+  return parts.join(" · ");
+}
+
+function backfillLineHtml(path) {
+  const r = backfillState?.results?.[path];
+  if (!r) return "";
+  const matched = r.tracks.length - (r.counts.new || 0) - (r.counts.unreadable || 0);
+  if (!matched) return "";
+  const albums = r.albums.map((a) => escapeHtml(a.album)).join("; ");
+  return `
+    <div class="backfill-line">
+      <span class="badge imported">In library</span> ${albums}
+      <div class="muted">${escapeHtml(backfillSummary(r.counts))}</div>
+      ${r.actionable ? '<button class="secondary" data-backfill>Attach to library…</button>' : ""}
+    </div>`;
+}
+
+function renderBackfillBar() {
+  const bar = $("#backfill-bar");
+  const st = backfillState;
+  if (!st) {
+    bar.innerHTML = "";
+    return;
+  }
+  if (st.running) {
+    const n = st.total ? ` ${st.done} / ${st.total}` : "";
+    bar.innerHTML = `<div class="backfill-bar"><span class="spinner"></span> ${escapeHtml(st.phase || "Working")}…${n}</div>`;
+    pollBackfill();
+    return;
+  }
+  const results = Object.entries(st.results || {});
+  const actionable = results.filter(([, r]) => r.actionable).map(([p]) => p);
+  const totals = {};
+  results.forEach(([, r]) => Object.entries(r.counts).forEach(([k, v]) => (totals[k] = (totals[k] || 0) + v)));
+  bar.innerHTML = `
+    <div class="backfill-bar">
+      <div class="row">
+        <button class="secondary" data-backfill-scan>${st.scanned_at ? "Check again" : "Check inbox against library"}</button>
+        ${actionable.length ? `<button data-backfill-all>Attach all (${plural(actionable.length, "folder")})…</button>` : ""}
+      </div>
+      <div class="muted">${st.scanned_at
+        ? `Last check: ${escapeHtml(backfillSummary(totals)) || "nothing in the inbox"}.`
+        : "Finds store downloads of tracks already in your library: saves them as the tracks' originals (for Undo import) and swaps in better-quality files."}</div>
+      ${st.fpcalc ? "" : '<div class="explorer-warn">fpcalc isn\'t installed: only byte-identical audio can be matched.</div>'}
+      ${st.error ? `<div class="explorer-warn">The last run failed: ${escapeHtml(st.error)}</div>` : ""}
+    </div>`;
+  bar.querySelector("[data-backfill-scan]").addEventListener("click", async (e) => {
+    e.target.disabled = true;
+    try {
+      await api("/api/backfill/scan", { method: "POST" });
+      loadInbox();
+    } catch (err) {
+      e.target.disabled = false;
+      showToast(err.message, "error");
+    }
+  });
+  bar.querySelector("[data-backfill-all]")?.addEventListener("click", () => openBackfillModal(actionable));
+}
+
+async function pollBackfill() {
+  if (backfillPolling) return;
+  backfillPolling = true;
+  try {
+    for (;;) {
+      await new Promise((r) => setTimeout(r, 1000));
+      backfillState = await api("/api/backfill");
+      if (!backfillState.running) break;
+      renderBackfillBar();
+    }
+  } catch {
+    // next loadInbox() retries
+  } finally {
+    backfillPolling = false;
+  }
+  const s = backfillState?.last_apply;
+  if (s && s !== backfillSeenApply && backfillState.kind === "apply") {
+    backfillSeenApply = s;
+    const msg = `Attached: ${plural(s.attached, "identical track")}, ${plural(s.replaced, "track")} swapped for the download.`;
+    if (s.errors.length) showToast(`${msg} ${plural(s.errors.length, "problem")}: ${s.errors.join("; ")}`, "error", 12000);
+    else showToast(msg, "info", 6000);
+  }
+  loadInbox();
+}
+
+const BF_ACTION = {
+  attach: ["Save as original", "Identical audio: the library file isn't touched."],
+  replace: ["Swap in", ""],
+  keep_library: ["Leave", ""],
+  already_saved: ["Leave", ""],
+  duplicate: ["Leave", ""],
+  new: ["Import later", "Not in the library: import it as usual."],
+  unreadable: ["Leave", ""],
+};
+
+function openBackfillModal(paths) {
+  const results = paths.map((p) => backfillState?.results?.[p]).filter(Boolean);
+  const body = document.createElement("div");
+  const rows = results.map((r) => `
+    <h4 class="mono">${escapeHtml(r.path)}</h4>
+    <table class="bf-table">
+      <tr><th>Download</th><th>Library track</th><th>Quality</th><th>What happens</th></tr>
+      ${r.tracks.map((t) => {
+        const [label, why] = BF_ACTION[t.action] || [t.action, ""];
+        const name = t.path.split("/").pop();
+        const quality = t.library ? `${escapeHtml(t.library)} → ${escapeHtml(t.download)}` : escapeHtml(t.download);
+        return `<tr class="bf-${t.action}">
+          <td>${escapeHtml(name)}</td>
+          <td>${t.title ? `${escapeHtml(t.title)}<div class="muted">${escapeHtml(t.album)}</div>` : '<span class="muted">—</span>'}</td>
+          <td>${quality}</td>
+          <td><strong>${label}</strong><div class="muted">${escapeHtml(t.note || why)}</div></td>
+        </tr>`;
+      }).join("")}
+    </table>`).join("");
+  const n = results.reduce((a, r) => a + (r.counts.attach || 0) + (r.counts.replace || 0), 0);
+  body.innerHTML = `
+    <h3>Attach ${plural(n, "download")} to your library</h3>
+    <div class="muted">
+      Each download is saved as its library track's original, so Undo import gives back the file exactly as downloaded.
+      <strong>Swap in</strong> replaces the library file with the download, with the library's tags and art written onto it
+      (Navidrome keeps play counts and playlists); the old file is kept in <span class="mono">webimport-replaced</span>.
+      Used downloads leave the inbox; everything else stays.
+    </div>
+    ${rows}
+    <div class="row">
+      <button data-bf-confirm>Attach</button>
+      <button class="secondary" data-bf-cancel>Cancel</button>
+    </div>`;
+  const modal = openModal(body);
+  modal.querySelector(".modal").classList.add("modal-wide");
+  body.querySelector("[data-bf-cancel]").addEventListener("click", () => modal.close());
+  body.querySelector("[data-bf-confirm]").addEventListener("click", async (e) => {
+    e.target.disabled = true;
+    try {
+      await api("/api/backfill/apply", { method: "POST", body: JSON.stringify({ paths }) });
+      modal.close();
+      loadInbox();
+    } catch (err) {
+      e.target.disabled = false;
+      showToast(err.message, "error");
+    }
+  });
 }
 
 // -- init ---------------------------------------------------------------
