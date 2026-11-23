@@ -53,7 +53,10 @@ Navidrome's file watcher normally scans about 5 seconds after the write.
 - Pending state is in memory only (ADR-0004). At startup, albums whose
   files aren't at their computed path are listed as pending but are
   **never moved automatically**: a changed path template would otherwise
-  move the whole library. They wait for "Move now".
+  move the whole library. They wait for "Move now", or "Move all" on the
+  Library tab, which confirms once for every such album (labelled "Not at
+  expected path", not "Waiting for Navidrome": nothing is waiting for a
+  scan). "Move all" leaves moves that do wait for a scan alone.
 - "Move now" is the user's override, with a warning. It also covers
   Navidrome being unreachable.
 - A later write supersedes a pending move (the wait starts over), and

@@ -110,6 +110,13 @@ class Mover:
         with self._guard:
             return {i for (k, i) in self._entries if k == "album"}
 
+    def album_states(self) -> dict[int, str]:
+        """album id -> "waiting" (moves by itself after a Navidrome scan) or
+        "misplaced" (found at startup or failed; needs "Move now")."""
+        with self._guard:
+            return {i: "waiting" if e.auto else "misplaced"
+                    for (k, i), e in self._entries.items() if k == "album"}
+
     def pending(self) -> list[dict]:
         with self._guard:
             entries = list(self._entries.values())
@@ -128,6 +135,32 @@ class Mover:
         with self.lock:
             self._move(kind, obj)
         return True
+
+    def move_all_misplaced(self) -> dict:
+        """The user's override for every entry that waits for "Move now"
+        (found at startup, or a failed move). Entries still waiting for a
+        Navidrome scan are left alone: moving those early loses history."""
+        with self._guard:
+            todo = [e for e in self._entries.values() if not e.auto]
+        moved, failed = 0, []
+        for e in sorted(todo, key=lambda e: (e.kind, e.id)):
+            with self._guard:
+                if self._entries.get((e.kind, e.id)) is not e:
+                    continue  # superseded meanwhile
+            obj = self.lib.get_album(e.id) if e.kind == "album" else self.lib.get_item(e.id)
+            try:
+                if obj is not None:
+                    with self.lock:
+                        self._move(e.kind, obj)
+                    moved += 1
+                with self._guard:
+                    if self._entries.get((e.kind, e.id)) is e:
+                        del self._entries[(e.kind, e.id)]
+            except Exception as exc:  # noqa: BLE001
+                log.exception("webimport: moving %s %s failed", e.kind, e.id)
+                e.reason = f"the move failed ({exc})"
+                failed.append({"kind": e.kind, "id": e.id, "error": str(exc)})
+        return {"moved": moved, "failed": failed}
 
     def forget(self, kind: str, id_: int) -> None:
         """The album/item left the library (e.g. Undo import)."""

@@ -963,7 +963,7 @@ async function loadLibrary(q = "") {
         <div class="art-placeholder"><span>No Art</span></div>
       </div>
       <span class="lib-badge">${escapeHtml(a.navidrome_library || "unassigned")}</span>
-      ${a.pending_move ? `<span class="pending-badge" title="${PENDING_MOVE_HINT}">Waiting for Navidrome</span>` : ""}
+      ${pendingBadgeHtml(a.pending_move)}
       <input type="checkbox" data-select />
       <div class="meta">${escapeHtml(a.albumartist)}<br/>${escapeHtml(a.album)}</div>`;
 
@@ -985,7 +985,69 @@ async function loadLibrary(q = "") {
     ]);
     grid.appendChild(tile);
   });
-  watchPendingMoves(albums.filter((a) => a.pending_move).map((a) => a.id), q);
+  watchPendingMoves(albums.filter((a) => a.pending_move === "waiting").map((a) => a.id), q);
+  renderMisplacedBar(q);
+}
+
+// "waiting": tags were just written; the move follows a Navidrome scan.
+// "misplaced": files found away from their computed path (at startup, or a
+// failed move); they stay until "Move now" / "Move all".
+function pendingBadgeHtml(state) {
+  if (state === "waiting") return `<span class="pending-badge" title="${PENDING_MOVE_HINT}">Waiting for Navidrome</span>`;
+  if (state === "misplaced") return `<span class="pending-badge misplaced" title="${MISPLACED_HINT}">Not at expected path</span>`;
+  return "";
+}
+
+const MISPLACED_HINT =
+  "These files aren't where your beets path settings would put them (usually named under older rules). They stay put until you use Move now or Move all.";
+
+async function renderMisplacedBar(q) {
+  const bar = $("#misplaced-bar");
+  let pending;
+  try {
+    pending = (await api("/api/library/pending_moves")).pending.filter((p) => !p.auto);
+  } catch (_) {
+    return;
+  }
+  bar.hidden = pending.length === 0;
+  if (!pending.length) return;
+  const albums = pending.filter((p) => p.kind === "album").length;
+  const singles = pending.length - albums;
+  const what = [albums && plural(albums, "album"), singles && plural(singles, "single track")].filter(Boolean).join(" and ");
+  bar.innerHTML = `
+    <div><strong>${what}</strong> ${pending.length === 1 ? "isn't" : "aren't"} at the path your beets settings give ${pending.length === 1 ? "it" : "them"}.</div>
+    <div class="muted">Moving only renames files; tags don't change, so Navidrome keeps play counts and playlists.</div>
+    <button data-move-all>Move all…</button>`;
+  bar.querySelector("[data-move-all]").addEventListener("click", () => confirmMoveAll(what, q));
+}
+
+function confirmMoveAll(what, q) {
+  const body = document.createElement("div");
+  body.innerHTML = `
+    <h3>Move ${what} to their expected paths?</h3>
+    <p class="muted">Files are renamed to match your beets path settings (for example <span class="mono">AC-DC</span> becomes <span class="mono">AC_DC</span>).
+    Albums still waiting for a Navidrome scan are left alone; they move by themselves.</p>
+    <div class="row">
+      <button data-confirm>Move all</button>
+      <button class="secondary" data-cancel>Cancel</button>
+    </div>`;
+  const modal = openModal(body);
+  body.querySelector("[data-cancel]").addEventListener("click", () => modal.close());
+  body.querySelector("[data-confirm]").addEventListener("click", async (e) => {
+    e.target.disabled = true;
+    e.target.textContent = "Moving…";
+    try {
+      const res = await api("/api/library/pending_moves/move_all", { method: "POST" });
+      modal.close();
+      if (res.failed.length) showToast(`Moved ${res.moved}; ${res.failed.length} failed (see the album pages).`, "error");
+      else showToast(`Moved ${plural(res.moved, "album")}.`, "success");
+      loadLibrary(q);
+    } catch (err) {
+      e.target.disabled = false;
+      e.target.textContent = "Move all";
+      showToast(`Move failed: ${err.message}`, "error");
+    }
+  });
 }
 
 // Pending Move (ADR-0011): files of an album whose tags were just written

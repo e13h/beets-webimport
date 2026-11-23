@@ -519,14 +519,20 @@ def create_app(lib, wi_config, plugin):
     def api_library_albums():
         q = request.args.get("q", "")
         albums = library.search_albums(lib, q)
-        pending = mover.pending_album_ids()
+        states = mover.album_states()
         for a in albums:
-            a["pending_move"] = a["id"] in pending
+            a["pending_move"] = states.get(a["id"], False)  # "waiting" | "misplaced" | False
         return jsonify(albums)
 
     @app.get("/api/library/pending_moves")
     def api_pending_moves():
         return jsonify({"navidrome": navidrome is not None, "pending": mover.pending()})
+
+    @app.post("/api/library/pending_moves/move_all")
+    @_safe
+    def api_pending_move_all():
+        """Move every album/track found away from its computed path."""
+        return jsonify(mover.move_all_misplaced())
 
     @app.post("/api/library/pending_moves/<kind>/<int:obj_id>/move")
     @_safe

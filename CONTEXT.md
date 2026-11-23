@@ -79,8 +79,10 @@ Navidrome scan that started after the write has seen them. webimport
 watches Navidrome's scan status and then runs the move (phase 2) by
 itself. "Move now" is the manual override. Held in memory only
 (ADR-0004): after a restart, albums not at their computed path are listed
-as pending but wait for "Move now". A later write restarts the wait; Undo
-import drops it.
+as pending ("Not at expected path" in the Library tab, versus "Waiting for
+Navidrome" for a move that follows a scan) but wait for "Move now" or
+"Move all", which moves every such album at once. A later write restarts
+the wait; Undo import drops it.
 _Avoid_: move queue, deferred move
 
 **Art Choice**:

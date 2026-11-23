@@ -193,3 +193,33 @@ def test_reimported_albums_are_found_by_path_and_queued(lib, album):
     album.store(inherit=True)  # as a reimport would leave it: new tags, old path
     reimport.hand_to_mover(lib, mover, [path])
     assert mover.is_pending("album", album.id)
+
+
+def test_move_all_moves_startup_mismatches_but_not_moves_waiting_for_a_scan(lib, album, tmp_path, create_wav_file):
+    src = tmp_path / "music" / "Other" / "Waits" / "01 Song.wav"
+    create_wav_file(src)
+    item = Item.from_path(str(src))
+    item.update({"artist": "Other", "albumartist": "Other", "album": "Waits", "title": "Song", "track": 1})
+    lib.add(item)
+    waiting = lib.add_album([item])
+    lib.path_formats = [("default", "elsewhere/$albumartist/$title")]
+    mover = Mover(lib, FakeNavidrome())
+    assert mover.discover() == 2
+    wi_lib.set_album_fields(lib, waiting.id, {"title": "New"}, mover=mover)  # now waits for a scan
+    assert mover.album_states() == {album.id: "misplaced", waiting.id: "waiting"}
+
+    assert mover.move_all_misplaced() == {"moved": 1, "failed": []}
+    assert at_computed_path(album)
+    assert not at_computed_path(waiting)
+    assert mover.album_states() == {waiting.id: "waiting"}
+
+
+def test_move_all_keeps_a_failed_move_listed(lib, album, monkeypatch):
+    lib.path_formats = [("default", "elsewhere/$title")]
+    mover = Mover(lib, FakeNavidrome())
+    mover.discover()
+    monkeypatch.setattr(Mover, "_move", lambda self, kind, obj: (_ for _ in ()).throw(OSError("disk full")))
+    res = mover.move_all_misplaced()
+    assert res["moved"] == 0 and res["failed"][0]["id"] == album.id
+    assert mover.album_states() == {album.id: "misplaced"}
+    assert "disk full" in mover.pending()[0]["reason"]
