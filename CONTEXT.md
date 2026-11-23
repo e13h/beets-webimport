@@ -75,6 +75,16 @@ A folder imported before move mode, still holding its files and the
 "Remove inbox copy", which first checks every file can be restored
 exactly from the library (ADR-0015).
 
+**Activity**:
+What an import or reimport is doing right now, shown on its card in the
+Inbox tab: queued (with its place in the queue), working (the current step
+and the web services it has called, counted per service), ready for review,
+applying, or failed. Exists from the request until the session ends
+(`activity.py`, in memory only). The Inbox tab is one list of inbox
+folders and reimports; an entry keeps its position and leaves the list
+once imported.
+_Avoid_: pending review section, job queue
+
 **Pending Move**:
 The state of an album (or singleton) whose new tags were written (phase 1
 of ADR-0011) but whose files still sit at their old path, until a

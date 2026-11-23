@@ -14,7 +14,7 @@ This playbook verifies the standard **Inbox Import**, **Search-by-ID Override**,
 7. The four original files are back in `.inbox/` byte-identical to before the import, and the album is gone from the library.
 
 ### Verifications
-1. **Inbox Review Initiation**: Clicking "Start import" (`[data-start]`) queues the inbox folder and produces an "Candidates ready for review" card with a "Review" button (`[data-review]`) under `#pending-reviews`.
+1. **Inbox Review Initiation**: Clicking "Start import" (`[data-start]`) queues the inbox folder and produces an "Candidates ready for review" card with a "Review" button (`[data-review]`) on the folder's card in `#inbox-dirs` (the Inbox tab is one list; a card's review appears on it).
 2. **Search-by-ID Override**: Entering target MBID `4e929666-952f-473c-baf2-97c9ca6bfbbe` into `[data-mbid]` and clicking `[data-use-id]` queries MusicBrainz and refreshes the candidate list with the forced release.
 3. **Apply & File Placement**: Selecting the forced candidate (`[data-select]`) moves the audio files under `.library/` according to beets' path templates, assigns `navidrome_library=unassigned`, embeds album art, and removes the folder from `.inbox/`.
 4. **Undo Import**: The undo panel lists the folder it will restore; confirming puts every file back byte-identical (SHA-256 match), removes the album, its library files and its stored originals, and the folder reappears in the Inbox tab.
@@ -79,7 +79,7 @@ Navigate to `http://localhost:8338` and inspect the initial Inbox view.
 - The "Inbox" navigation button (`#tabs button[data-tab="inbox"]`) has class `active`.
 - Section `#tab-inbox` has class `active`.
 - `#inbox-dirs` contains a `.card` for each inbox folder (B.o.B, Coldplay, Mulan); the Mulan card shows the path to `.inbox/Mulan (Original Motion Picture Soundtrack)` and an enabled "Start import" button (`button[data-start]`).
-- `#pending-reviews` is empty.
+- no card in `#inbox-dirs` shows a `[data-review]` button.
 
 ---
 
@@ -110,7 +110,7 @@ Wait for the worker pool to discover candidate matches from MusicBrainz and rend
 ```
 
 **Expected Observable Outcome:**
-- Under `#pending-reviews`, a `.card` appears showing:
+- On the folder's card in `#inbox-dirs`:
   - Path: `.../.inbox/Mulan (Original Motion Picture Soundtrack)`
   - Status text: `Candidates ready for review`
   - A "Review" button (`button[data-review]`).
@@ -124,7 +124,7 @@ Click the "Review" button to open the candidate decision modal.
 // Tool Call: browser_click
 {
   "element": "Review button",
-  "target": "#pending-reviews .card button[data-review]"
+  "target": "#inbox-dirs .card button[data-review]"
 }
 ```
 
@@ -183,7 +183,7 @@ Wait for the worker thread to query MusicBrainz for the specific MBID and re-pop
 **Expected Observable Outcome:**
 - The previous review modal closes (`.modal-backdrop` is removed).
 - The task is re-queued with the new candidate list for release `4e929666-952f-473c-baf2-97c9ca6bfbbe`.
-- A `.card` with "Candidates ready for review" and `button[data-review]` is visible under `#pending-reviews`.
+- A `.card` with "Candidates ready for review" and `button[data-review]` is visible on the folder's card in `#inbox-dirs` (the Inbox tab is one list; a card's review appears on it).
 
 ---
 
@@ -194,7 +194,7 @@ Click "Review" on the updated task card to view the forced candidates.
 // Tool Call: browser_click
 {
   "element": "Review button for updated task",
-  "target": "#pending-reviews .card button[data-review]"
+  "target": "#inbox-dirs .card button[data-review]"
 }
 ```
 
@@ -228,7 +228,7 @@ Click "Select" on the candidate to apply the import:
 
 **Expected Observable Outcome:**
 - Review modal closes.
-- The card disappears from `#pending-reviews`.
+- The card's Review button and "Ready for review" badge go away (move mode: the card leaves the list once imported).
 - Server acquires the Apply Lock, moves the audio files into `.library/`, writes tags, embeds the chosen art, checks each file's stored original, then removes the emptied folder from `.inbox/`.
 
 ---

@@ -36,6 +36,8 @@ class PendingReview:
     # worker is blocked waiting for this review's decision, so it's safe to
     # read for previews (tagpreview.py).
     task: Any = None
+    # The import/reimport (activity.py key) this review belongs to.
+    owner: Optional[str] = None
     decision_queue: "queue.Queue" = field(default_factory=lambda: queue.Queue(maxsize=1))
 
 
@@ -67,8 +69,15 @@ class ReviewManager:
         self._lock = threading.Lock()
 
     def register(self, kind: str, path: str, payload: dict, task=None) -> PendingReview:
+        from . import activity
+
         task_id = uuid.uuid4().hex
-        pr = PendingReview(task_id=task_id, kind=kind, path=path, payload=payload, task=task)
+        act = activity.current.get()
+        pr = PendingReview(task_id=task_id, kind=kind, path=path, payload=payload, task=task,
+                           owner=act.key if act else None)
+        if act is not None:
+            act.set("Possible duplicate: waiting for your decision" if kind == "duplicate"
+                    else "Ready for review", "review")
         with self._lock:
             self._pending[task_id] = pr
         return pr
@@ -81,6 +90,7 @@ class ReviewManager:
                     "kind": pr.kind,
                     "path": pr.path,
                     "payload": pr.payload,
+                    "owner": pr.owner,
                 }
                 for pr in self._pending.values()
             ]
@@ -106,6 +116,9 @@ class ReviewManager:
         decision = pr.decision_queue.get()  # blocks
         with self._lock:
             self._pending.pop(task_id, None)
+        from . import activity
+
+        activity.step("Applying your choice" if decision.get("action") != "skip" else "Skipping", "applying")
         return decision
 
 

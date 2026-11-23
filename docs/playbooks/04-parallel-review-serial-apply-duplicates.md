@@ -59,7 +59,7 @@ The playbook queries live MusicBrainz and Cover Art Archive endpoints for metada
    - `#tab-inbox` is visible and active.
    - `#inbox-dirs` renders two folder cards: the original `Mulan` album and the duplicate `Mulan_dup`.
    - Each card has a `.path` label and a `button[data-start]` ("Start import").
-   - `#pending-reviews` is initially empty.
+   - no card in `#inbox-dirs` has a `[data-review]` button.
 
 ---
 
@@ -91,7 +91,7 @@ The playbook queries live MusicBrainz and Cover Art Archive endpoints for metada
    browser_snapshot()
    ```
 3. **Expected Observable Outcome:**
-   - `#pending-reviews` contains **two separate cards** simultaneously:
+   - **two cards** in `#inbox-dirs` show a Review button simultaneously:
      - One card for the original album (e.g. path ending in `Mulan`).
      - One card for the duplicate album (`Mulan_dup`).
    - Both cards display status text `"Candidates ready for review"` and have an enabled `button[data-review]` ("Review").
@@ -105,7 +105,7 @@ The playbook queries live MusicBrainz and Cover Art Archive endpoints for metada
 2. **Playwright MCP Calls:**
    ```json
    // Open candidate review modal for the first album
-   browser_click(target="#pending-reviews .card:first-child button[data-review]")
+   browser_click(target="#inbox-dirs .card:first-child button[data-review]")
 
    // In the review modal, enter the target MBID
    browser_type(target=".modal input[data-mbid]", text="4e929666-952f-473c-baf2-97c9ca6bfbbe")
@@ -115,7 +115,7 @@ The playbook queries live MusicBrainz and Cover Art Archive endpoints for metada
    browser_wait_for(text="Candidates ready for review")
 
    // Open the re-reviewed task
-   browser_click(target="#pending-reviews .card:first-child button[data-review]")
+   browser_click(target="#inbox-dirs .card:first-child button[data-review]")
 
    // Select the top candidate to trigger apply
    browser_click(target=".modal .candidate:first-child button[data-select]")
@@ -124,8 +124,8 @@ The playbook queries live MusicBrainz and Cover Art Archive endpoints for metada
    - The review modal closes.
    - The worker thread acquires the global Apply Lock (ADR-0006).
    - Beets writes tags, copies files to `.library/unassigned/Jerry Goldsmith, Matthew Wilder & David Zippel/Mulan (Original Motion Picture Soundtrack)/`, adds the album to `.config/library.db`, embeds cover art, and releases the Apply Lock.
-   - The first album is removed from `#pending-reviews`.
-   - Only the second album (`Mulan_dup`) remains under `#pending-reviews`.
+   - The first album's card loses its Review button (spinner while it applies; in move mode the card then leaves the list).
+   - Only the second album (`Mulan_dup`) remains in `#inbox-dirs` (the Inbox tab is one list).
 
 ---
 
@@ -155,7 +155,7 @@ The playbook queries live MusicBrainz and Cover Art Archive endpoints for metada
 2. **Playwright MCP Calls:**
    ```json
    // Open review for the remaining Mulan_dup card
-   browser_click(target="#pending-reviews .card button[data-review]")
+   browser_click(target="#inbox-dirs .card button[data-review]")
 
    // Set the target MBID
    browser_type(target=".modal input[data-mbid]", text="4e929666-952f-473c-baf2-97c9ca6bfbbe")
@@ -165,7 +165,7 @@ The playbook queries live MusicBrainz and Cover Art Archive endpoints for metada
    browser_wait_for(text="Candidates ready for review")
 
    // Open the re-reviewed candidate modal
-   browser_click(target="#pending-reviews .card button[data-review]")
+   browser_click(target="#inbox-dirs .card button[data-review]")
 
    // Select the target candidate
    browser_click(target=".modal .candidate:first-child button[data-select]")
@@ -173,7 +173,7 @@ The playbook queries live MusicBrainz and Cover Art Archive endpoints for metada
 3. **Expected Observable Outcome:**
    - When the worker applies album 2, beets detects that an album with the same artist and title already exists in the library (`duplicate_action: ask`).
    - The session hook `get_duplicate_action(task, found_duplicates)` triggers and registers a `duplicate` task in `ReviewManager`.
-   - The review card in `#pending-reviews` updates its status to `"Possible duplicate"`.
+   - The album's card in `#inbox-dirs` shows the "Possible duplicate" badge and a "Review possible duplicate" button.
 
 ---
 
@@ -183,7 +183,7 @@ The playbook queries live MusicBrainz and Cover Art Archive endpoints for metada
 2. **Playwright MCP Calls:**
    ```json
    // Open duplicate decision dialog
-   browser_click(target="#pending-reviews .card button[data-review]")
+   browser_click(target="#inbox-dirs .card button[data-review]")
    // Snapshot modal DOM
    browser_snapshot()
    ```
@@ -211,7 +211,7 @@ The playbook queries live MusicBrainz and Cover Art Archive endpoints for metada
 3. **Expected Observable Outcome:**
    - Modal closes.
    - POST `/api/review/<task_id>/decide` with `{ "action": "skip" }` resolves `get_duplicate_action` to `DuplicateAction.SKIP`.
-   - `#pending-reviews` becomes completely empty (`dirsEl.innerHTML` contains no pending items).
+   - No card in `#inbox-dirs` shows a Review button.
    - **Filesystem & Database Check:**
      - `.library/` contains only the files from the first import (no second album directory or duplicate files).
      - Database `.config/library.db` contains exactly 1 album.

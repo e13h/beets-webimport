@@ -335,23 +335,14 @@ def test_reimport_keeps_the_albums_fields_over_config_defaults(lib, library_albu
 def test_reimport_starts_from_the_stored_originals_tags(lib, tmp_path, create_wav_file, lookups, monkeypatch):
     import json
 
-    from beets import plugins
     from beets.library import Item
     from mediafile import MediaFile
 
-    from beetsplug.webimport import itunes, originals, purchase, reimport
+    from beetsplug.webimport import itunes, originals, purchase
 
     monkeypatch.setattr(originals, "store_root", lambda: tmp_path / "store")
     monkeypatch.setattr(itunes, "musicbrainz_match_for_items", lambda items: None)
     monkeypatch.setattr(purchase, "detect_store", lambda items, folder, library=False: None)
-    orig_send = plugins.send
-
-    def send(event, **kw):
-        if event == "import_task_created":
-            reimport.on_task_created(**kw)
-        return orig_send(event, **kw)
-
-    monkeypatch.setattr(plugins, "send", send)
     path = create_wav_file(tmp_path / "music" / "X" / "Album" / "01.wav")
     mf = MediaFile(str(path))
     mf.update({"title": "Bought Title", "artist": "Store Artist", "album": "Store Album", "track": 1})

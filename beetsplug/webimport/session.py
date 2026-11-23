@@ -21,7 +21,7 @@ from beets import context as beets_context
 from beets import util as beets_util
 from beets.util import displayable_path
 
-from . import itunes, purchase, snapshot
+from . import activity, itunes, purchase, snapshot
 
 log = logging.getLogger("beets.webimport")
 
@@ -143,6 +143,31 @@ class WebImportSession(importer.ImportSession):
             config = confuse.RootView([source, *config.root().sources])["import"]
         super().set_config(config)
 
+    def _task_created(self, task) -> None:
+        """Each task as beets' first stage creates it, before the candidate
+        search (see _install_stage_hooks)."""
+        items = getattr(task, "items", None)
+        if not items:
+            return
+        if (self.query is not None and self.start_from_originals
+                and getattr(task, "is_album", False)):
+            # Reimport (ADR-0017): start from the stored originals' tags,
+            # so the search below sees the purchase's tags too. In memory
+            # only; nothing is written unless a release is applied.
+            from .reimport import restore_original_tags
+
+            activity.step("Reading the original download's tags")
+            task._wi_from_original = restore_original_tags(items, self.lib.directory)
+        lookup = getattr(task, "lookup_candidates", None)
+        if lookup is not None and "lookup_candidates" not in vars(task):
+            def lookup_candidates(search_ids=None, *args, **kwargs):
+                ids = [i for i in (search_ids or []) if i and str(i).strip()]
+                activity.step(f"Looking up {len(ids)} release{'s' if len(ids) != 1 else ''} by ID" if ids
+                              else "Searching for matching releases")
+                return lookup(search_ids, *args, **kwargs)
+
+            task.lookup_candidates = lookup_candidates
+
     # -- album matching -----------------------------------------------
     def choose_match(self, task: importer.ImportTask):
         if self.query is not None:
@@ -215,6 +240,7 @@ class WebImportSession(importer.ImportSession):
         if not self.apple_match_items or id(task) in self._apple_match_tried:
             return
         self._apple_match_tried.add(id(task))
+        activity.step("Finding the release linked to the album's Apple Music listing")
         try:
             match = itunes.musicbrainz_match_for_items(task.items)
         except Exception:  # noqa: BLE001 -- never block a review on this
@@ -235,6 +261,7 @@ class WebImportSession(importer.ImportSession):
             store = purchase.detect_store(task.items, folder, library=reimport)
             if store is None:
                 return None
+            activity.step("Searching MusicBrainz for digital releases of this purchase")
             hints = purchase.album_hints(task.items)
             existing = [m.info.album_id for m in task.candidates]
             ids = purchase.digital_release_ids(hints, exclude=existing)
@@ -279,8 +306,11 @@ class WebImportSession(importer.ImportSession):
 
     def _acquire_apply_lock(self):
         if self.apply_lock is not None and not self._lock_acquired:
-            self.apply_lock.acquire()
+            if not self.apply_lock.acquire(blocking=False):
+                activity.step("Waiting for another import to finish applying")
+                self.apply_lock.acquire()
             self._lock_acquired = True
+        activity.step("Writing tags and files")
 
     def _apply_decision_album(self, task, decision):
         kind = decision.get("action")
@@ -403,3 +433,31 @@ def _resolve_item_paths(items) -> None:
         path = item.path
         if path and not os.path.isabs(path):
             item.path = beets_util.normpath(os.path.join(music_dir, path))
+
+
+def _install_stage_hooks() -> None:
+    """Give WebImportSession each task as beets' first pipeline stage
+    yields it (read_tasks for inbox folders, query_tasks for reimports).
+
+    Not the import_task_created event: plugin listeners run inside beets'
+    log-level wrapper, which isn't thread-safe, and these stages run in
+    parallel sessions. Wraps the two stage generators once; other
+    sessions pass through untouched."""
+    from beets.importer import stages
+
+    if getattr(stages, "_webimport_hooked", False):
+        return
+    for name in ("read_tasks", "query_tasks"):
+        original = getattr(stages, name)
+
+        def hooked(session, _original=original):
+            for task in _original(session):
+                if isinstance(session, WebImportSession):
+                    session._task_created(task)
+                yield task
+
+        setattr(stages, name, hooked)
+    stages._webimport_hooked = True
+
+
+_install_stage_hooks()

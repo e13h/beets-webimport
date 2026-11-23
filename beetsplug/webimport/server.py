@@ -11,7 +11,7 @@ from beets import config as beets_config
 from beets import context as beets_context
 from beets.util import syspath
 
-from . import artchoice, backfill, coverart, itunes, library, lifecycle, originals, reimport, restore, snapshot, tagpreview, tags, version
+from . import activity, artchoice, backfill, coverart, itunes, library, lifecycle, originals, reimport, restore, snapshot, tagpreview, tags, version
 from .navidrome import NavidromeClient
 from .pendingmove import Mover
 from .queue import InboxWorkerPool, ReviewManager
@@ -61,6 +61,30 @@ def create_app(lib, wi_config, plugin):
     pool = InboxWorkerPool(
         wi_config["candidate_search_workers"].get(int), initializer=bind_music_dir
     )
+    # What each import/reimport is doing, for the Inbox tab (activity.py).
+    activities = activity.Activities()
+    activity.install_request_hook()
+    app.config["webimport_activities"] = activities
+
+    def _submit(act: activity.Activity, run) -> None:
+        """Queue `run()` in the worker pool, tracked by `act` from now
+        until its session ends."""
+        activities.add(act)
+
+        def job(_key):
+            token = activity.current.set(act)
+            act.set("Starting", "working")
+            try:
+                run()
+            except Exception as exc:  # noqa: BLE001 -- shown on the card
+                activities.fail(act, str(exc) or exc.__class__.__name__)
+                raise
+            else:
+                activities.finish(act)
+            finally:
+                activity.current.reset(token)
+
+        pool.submit(act.key, job)
 
     try:
         data_dir = Path(beets_config.config_dir()) / "webimport"
@@ -95,8 +119,10 @@ def create_app(lib, wi_config, plugin):
                 _import_ctx["imported_album_id"] = album.id
 
     plugin.register_listener("album_imported", _on_album_imported)
-    # Reimport: start from the stored originals' tags (ADR-0017).
-    plugin.register_listener("import_task_created", reimport.on_task_created)
+    # No listeners for events fired while sessions run in parallel
+    # (import_task_created / _start): beets' listener wrapper isn't
+    # thread-safe. Per-task work happens in the session
+    # (WebImportSession._task_created).
     # Import-time album art (fetchart's automatic step is off). Runs in the
     # serialized apply phase, so it never overlaps across parallel imports.
     plugin.register_listener("import_task_files", artchoice.on_import_task_files)
@@ -167,11 +193,13 @@ def create_app(lib, wi_config, plugin):
         elif wi_config["apple_music_match"].get(bool):
             # iTunes purchase with a MusicBrainz release linked to its
             # Apple Music listing: search only the linked release(s).
+            activity.step("Checking for an iTunes purchase")
             match = itunes.musicbrainz_match_for_dir(Path(path))
             if match and match["release_ids"]:
                 session.preset_search_id = list(match["release_ids"])
                 session.matched_via = match
         try:
+            activity.step("Reading the files")
             session.run()
             with _import_ctx_lock:
                 imported_album_id = _import_ctx["imported_album_id"]
@@ -263,8 +291,15 @@ def create_app(lib, wi_config, plugin):
             {
                 "inbox_dirs": found,
                 "pending_review": pending_list,
+                "activities": activities.as_json(),
             }
         )
+
+    @app.post("/api/activity/dismiss")
+    def api_activity_dismiss():
+        """Remove a failed import/reimport's card."""
+        key = (request.get_json(force=True) or {}).get("key", "")
+        return jsonify({"ok": activities.dismiss(key)})
 
     @app.post("/api/inbox/delete")
     @_safe
@@ -299,7 +334,8 @@ def create_app(lib, wi_config, plugin):
         body = request.get_json(force=True)
         search_ids = body.get("search_ids") or {}
         for path in body.get("paths", []):
-            pool.submit(path, lambda p, sid=search_ids.get(path): _run_album_import(p, sid))
+            _submit(activity.Activity(key=path, kind="import", label=Path(path).name, path=path),
+                    lambda p=path, sid=search_ids.get(path): _run_album_import(p, sid))
         return jsonify({"submitted": len(body.get("paths", []))})
 
     @app.post("/api/inbox/group")
@@ -331,7 +367,8 @@ def create_app(lib, wi_config, plugin):
                 src = Path(f)
                 if src.exists():
                     shutil.move(str(src), str(bin_dir / src.name))
-            pool.submit(str(bin_dir), _run_album_import)
+            _submit(activity.Activity(key=str(bin_dir), kind="import", label=bin_dir.name, path=str(bin_dir)),
+                    lambda p=str(bin_dir): _run_album_import(p))
             submitted_paths.append(str(bin_dir))
         return jsonify({"submitted": submitted_paths})
 
@@ -757,8 +794,15 @@ def create_app(lib, wi_config, plugin):
                 apple_music_match=wi_config["apple_music_match"].get(bool),
             )
 
-        pool.submit(f"reimport:{','.join(map(str, album_ids))}", lambda _p: _job())
-        return jsonify({"submitted": True})
+        key = f"reimport:{','.join(map(str, album_ids))}"
+        if activities.get(key) is not None and activities.get(key).state != "failed":
+            return jsonify({"error": "This album is already being reimported."}), 409
+        names = []
+        for aid in album_ids:
+            album = lib.get_album(aid)
+            names.append(f"{album.albumartist} – {album.album}" if album else f"album {aid}")
+        _submit(activity.Activity(key=key, kind="reimport", label="; ".join(names), album_ids=list(album_ids)), _job)
+        return jsonify({"submitted": True, "key": key})
 
     # -- static frontend ----------------------------------------------------
     @app.get("/")

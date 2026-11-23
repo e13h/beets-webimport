@@ -80,7 +80,7 @@ Import the initial Mulan test album into the disposable library to establish a b
    - Playwright tool call: `browser_click(target="#inbox-dirs .card:has-text('Mulan') button[data-start]", element="Start import button for Mulan folder")`
    - Playwright tool call: `browser_wait_for(text="Candidates ready for review")`
 3. **Review & Force Target MusicBrainz ID:**
-   - Playwright tool call: `browser_click(target="#pending-reviews .card button[data-review]", element="Review button for pending Mulan import")`
+   - Playwright tool call: `browser_click(target="#inbox-dirs .card button[data-review]", element="Review button for pending Mulan import")`
    - Playwright tool call: `browser_type(target="div#modal-root input[data-mbid]", text="4e929666-952f-473c-baf2-97c9ca6bfbbe")`
    - Playwright tool call: `browser_click(target="div#modal-root button[data-use-id]", element="Use ID button")`
    - Playwright tool call: `browser_wait_for(text="Jerry Goldsmith, Matthew Wilder & David Zippel")`
@@ -213,7 +213,7 @@ Import the initial Mulan test album into the disposable library to establish a b
    browser_snapshot()
    ```
 3. **Expected Observable Outcome:**
-   - Under `#pending-reviews`, a review card appears containing the album path / query and `button[data-review]`.
+   - In `#inbox-dirs`, the reimport's card (shown with a spinner since the reimport started) changes to "Ready for review" containing the album path / query and `button[data-review]`.
 
 ---
 
@@ -225,7 +225,7 @@ Import the initial Mulan test album into the disposable library to establish a b
    ```json
    // 1. Click Review on the reimport task card
    browser_click({
-     "target": "#pending-reviews .card button[data-review]",
+     "target": "#inbox-dirs .card button[data-review]",
      "element": "Review button for reimport task"
    })
    ```
@@ -343,7 +343,7 @@ Undo import after a reimport goes back to the files as they were before the *fir
    ```json
    // 4. Open review, select candidate 0 as-is or apply match
    browser_click({
-     "target": "#pending-reviews .card button[data-review]",
+     "target": "#inbox-dirs .card button[data-review]",
      "element": "Review button"
    })
    ```

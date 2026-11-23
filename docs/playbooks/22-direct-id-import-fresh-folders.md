@@ -127,7 +127,7 @@ a few seconds, well under the broad-search wait):
 // Tool Call: browser_click
 {
   "element": "Review button",
-  "target": "#pending-reviews .card button[data-review]"
+  "target": "#inbox-dirs .card button[data-review]"
 }
 ```
 
@@ -207,7 +207,7 @@ expand the toggle, and submit a bogus ID:
 // Tool Call: browser_click
 {
   "element": "Review button",
-  "target": "#pending-reviews .card button[data-review]"
+  "target": "#inbox-dirs .card button[data-review]"
 }
 ```
 
@@ -252,7 +252,7 @@ expand the toggle, and submit a bogus ID:
 // Tool Call: browser_click
 {
   "element": "Review button",
-  "target": "#pending-reviews .card button[data-review]"
+  "target": "#inbox-dirs .card button[data-review]"
 }
 ```
 

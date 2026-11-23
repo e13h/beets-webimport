@@ -560,3 +560,10 @@ button.small { padding: 2px 8px; font-size: 12px; align-self: flex-start; margin
 .backfill-bar .mono, .bf-table + h4.mono, h4.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; word-break: break-all; color: var(--muted); }
 
 #version { text-align: center; font-size: 11px; padding: 24px 0 16px; }
+
+/* Inbox: one list; a card shows what its import is doing. */
+.activity-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0; font-size: 13px; }
+.activity-status .activity-requests { flex-basis: 100%; font-size: 11px; }
+.activity-status.failed { color: var(--danger); }
+.card.busy { opacity: .85; }
+.badge.failed { background: rgba(220, 80, 80, .18); color: #f08a8a; }

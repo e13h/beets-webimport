@@ -82,10 +82,15 @@ def run_reimport(
     # them again by their paths, which don't change while files are held.
     paths = [item.path for aid in album_ids for item in lib.items(f"album_id:{aid}")]
 
+    from . import activity
+
     lock_acquired = False
     if apply_lock is not None:
-        apply_lock.acquire()
+        if not apply_lock.acquire(blocking=False):
+            activity.step("Waiting for another import to finish applying")
+            apply_lock.acquire()
         lock_acquired = True
+    activity.step("Loading the album from the library")
 
     try:
         with _temporary_import_config(from_scratch, set_fields):
@@ -170,21 +175,6 @@ def _restore(obj, values: dict) -> None:
             changed = True
     if changed:
         obj.store()
-
-
-def on_task_created(session, task):
-    """import_task_created: a reimport of an album whose tracks all have a
-    stored original starts from the originals' tags. Runs before beets'
-    first candidate search, so matching sees the purchase's tags too.
-    Only the task's in-memory items change; nothing is written unless a
-    release is applied."""
-    from .session import WebImportSession
-
-    if (isinstance(session, WebImportSession) and session.query is not None
-            and getattr(session, "start_from_originals", False)
-            and getattr(task, "is_album", False)):
-        task._wi_from_original = restore_original_tags(task.items, session.lib.directory)
-    return None
 
 
 def restore_original_tags(items, music_dir) -> bool:

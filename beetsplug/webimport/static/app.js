@@ -225,7 +225,7 @@ async function openReviewWhenReady(path, maxWaitMs = 30000) {
     } catch {
       continue; // transient poll failure -- keep waiting
     }
-    const pr = data.pending_review.find((p) => p.path === path);
+    const pr = data.pending_review.find((p) => p.owner === path || p.path === path);
     if (pr) {
       openReview(pr);
       return;
@@ -253,228 +253,307 @@ document.addEventListener("pointerdown", (e) => {
   focusedIdInputPath = null;
 }, true);
 
+// The Inbox tab is one list: every inbox folder, every reimport, and any
+// review that belongs to neither. An entry keeps the position it first
+// appeared at (new ones are added at the end) and leaves the list when its
+// import is done. While beets works on it, the card shows a spinner, what
+// it's doing (activity.py: queue position, step, web requests) and its
+// buttons are disabled; a review shows up on the same card.
+const inboxOrder = new Map(); // entry key -> position
+let inboxSeq = 0;
+const inboxCards = new Map(); // entry key -> { el, sig }
+let inboxScrollTo = null; // a reimport's key: scroll to its card once shown
+let inboxFastPoll = null;
+let inboxLoading = false;
+
+const ACTIVITY_BUSY = new Set(["queued", "working", "applying"]);
+
+let inboxReloadAgain = false;
+
 async function loadInbox() {
+  if (inboxLoading) { inboxReloadAgain = true; return; } // one more after this one
+  inboxLoading = true;
   let data;
   try {
     [data, backfillState] = await Promise.all([api("/api/inbox"), api("/api/backfill").catch(() => null)]);
   } catch (err) {
     showToast(`Failed to load inbox: ${err.message}`, "error");
     return;
+  } finally {
+    inboxLoading = false;
+    if (inboxReloadAgain) { inboxReloadAgain = false; setTimeout(loadInbox, 0); }
   }
   renderBackfillBar();
 
-  const dirsEl = $("#inbox-dirs");
-  const livePaths = new Set();
-  dirsEl.innerHTML = "";
-  if (data.inbox_dirs.length === 0) {
-    dirsEl.innerHTML = '<p class="timer">Inbox is empty.</p>';
-  }
+  const acts = new Map((data.activities || []).map((a) => [a.key, a]));
+  const reviews = [...data.pending_review];
+  const usedReviews = new Set();
+  const reviewsFor = (key) => {
+    const mine = reviews.filter((r) => !usedReviews.has(r.task_id) && (r.owner === key || (!r.owner && r.path === key)));
+    mine.forEach((r) => usedReviews.add(r.task_id));
+    return mine;
+  };
 
-  data.inbox_dirs.forEach((dirInfo) => {
-    const isObj = typeof dirInfo === "object" && dirInfo !== null;
-    const path = isObj ? dirInfo.path : dirInfo;
-    livePaths.add(path);
-    const imported = isObj ? !!dirInfo.imported : false;
-    const albumId = isObj ? dirInfo.album_id : null;
-    const inProgress = isObj ? !!dirInfo.in_progress : false;
-    const pendingReview = isObj ? !!dirInfo.pending_review : false;
-
-    const card = document.createElement("div");
-    card.className = "card" + (imported ? " imported" : "");
-
-    let badgeHtml = "";
-    if (imported) {
-      badgeHtml = '<span class="badge imported">Imported</span> ';
-    } else if (inProgress) {
-      badgeHtml = '<span class="badge pending">In Progress</span> ';
-    } else if (pendingReview) {
-      badgeHtml = '<span class="badge pending">Pending Review</span> ';
-    }
-
-    let actionsHtml = "";
-    if (imported) {
-      actionsHtml = `
-        <button class="secondary" data-reimport>Re-import</button>
-        <button class="secondary" data-id-toggle>Import with ID…</button>
-        <button class="danger" data-release title="Imported before move mode: the inbox still holds a copy. Removes it once every file is checked to be restorable from the library (Undo import).">Remove inbox copy</button>`;
-    } else if (inProgress || pendingReview) {
-      actionsHtml = `
-        <button disabled class="secondary">${inProgress ? "Searching Candidates…" : "Awaiting Review"}</button>`;
-    } else {
-      actionsHtml = `
-        <button data-start>Start import</button>
-        <button class="secondary" data-id-toggle>Import with ID…</button>`;
-    }
-
-    const idFormHtml = `
-      <div class="row" data-id-form style="display:none">
-        <input type="text" placeholder="Paste MusicBrainz ID or URL" style="flex:1" data-id-input />
-        <button data-id-go>Start import with ID</button>
-      </div>`;
-
-    card.innerHTML = `
-      <div class="path">${badgeHtml}${escapeHtml(path)}</div>
-      ${backfillLineHtml(path)}
-      <div class="row">
-        ${actionsHtml}
-      </div>
-      ${idFormHtml}`;
-    card.querySelector("[data-backfill]")?.addEventListener("click", () => openBackfillModal([path]));
-
-    const idToggle = card.querySelector("[data-id-toggle]");
-    const idForm = card.querySelector("[data-id-form]");
-    const idInput = card.querySelector("[data-id-input]");
-    // Restore open-state and typed text across the 5s polling re-render
-    // (focus is restored after appendChild -- focus() is a silent no-op
-    // on elements not yet in the document). openIdForms.has(), not
-    // truthiness -- an open-but-empty form stores "".
-    const isOpen = openIdForms.has(path);
-    if (isOpen) {
-      idForm.style.display = "flex";
-      idInput.value = openIdForms.get(path) || "";
-    }
-    if (idToggle) {
-      idToggle.addEventListener("click", () => {
-        const visible = idForm.style.display !== "none";
-        idForm.style.display = visible ? "none" : "flex";
-        if (visible) {
-          openIdForms.delete(path);
-          if (focusedIdInputPath === path) focusedIdInputPath = null;
-        } else {
-          openIdForms.set(path, idInput.value);
-          idInput.focus();
-        }
-      });
-    }
-    idInput.addEventListener("input", () => openIdForms.set(path, idInput.value));
-    // Track focus for restore after the poll re-render. Do NOT clear on
-    // blur: Chrome fires blur with isConnected===true while tearing down
-    // the old DOM, so blur can't distinguish teardown from a real
-    // click-away. Instead, a document-level pointerdown outside the form
-    // (below) clears the tracker.
-    idInput.addEventListener("focus", () => (focusedIdInputPath = path));
-
-    const idGo = card.querySelector("[data-id-go]");
-    if (idGo) {
-      const resetIdGo = () => {
-        idGo.disabled = false;
-        idGo.textContent = "Start import with ID";
-      };
-      idGo.addEventListener("click", async () => {
-        // Raw pass-through: no client-side URL parsing or extraction.
-        const raw = idInput.value.trim();
-        if (!raw) return;
-        idGo.disabled = true;
-        idGo.textContent = "Starting…";
-        try {
-          if (imported) {
-            if (!albumId) {
-              showToast(
-                "Cannot Direct-ID-import: library album ID unavailable from marker data. Use Re-import instead.",
-                "error"
-              );
-              resetIdGo();
-              return;
-            }
-            await api("/api/reimport", {
-              method: "POST",
-              body: JSON.stringify({
-                album_ids: [albumId],
-                search_id: raw,
-                from_scratch: false,
-                set_fields: {},
-              }),
-            });
-          } else {
-            await api("/api/inbox/start", {
-              method: "POST",
-              body: JSON.stringify({
-                paths: [path],
-                search_ids: { [path]: raw },
-              }),
-            });
-          }
-          showToast(`Started Direct ID import for ${path}`, "info", 3000);
-          loadInbox();
-          if (!imported) openReviewWhenReady(path);
-        } catch (err) {
-          showToast(`Failed to start import: ${err.message}`, "error");
-          resetIdGo();
-        }
-      });
-    }
-
-    if (imported) {
-      card.querySelector("[data-reimport]").addEventListener("click", () => {
-        if (albumId) openReimport([albumId]);
-        else showToast("Album ID not available for reimport.", "error");
-      });
-      card.querySelector("[data-release]").addEventListener("click", async (e) => {
-        e.target.disabled = true;
-        const toast = createProgressToast(`Checking ${path}…`);
-        try {
-          const r = await api("/api/inbox/release", { method: "POST", body: JSON.stringify({ path }) });
-          toast.done(`Removed the inbox copy: ${r.audio_files} track${r.audio_files === 1 ? "" : "s"} restorable with Undo import${r.other_files ? `, ${r.other_files} other file${r.other_files === 1 ? "" : "s"} kept with the album` : ""}.`);
-          loadInbox();
-        } catch (err) {
-          e.target.disabled = false;
-          const problems = err.data?.problems?.length ? ` ${err.data.problems.join(" ")}` : "";
-          toast.error(`Kept the inbox copy: ${err.message}${problems}`);
-        }
-      });
-    } else if (!inProgress && !pendingReview) {
-      const startBtn = card.querySelector("[data-start]");
-      startBtn.addEventListener("click", async () => {
-        startBtn.disabled = true;
-        startBtn.textContent = "Starting…";
-        try {
-          await api("/api/inbox/start", {
-            method: "POST",
-            body: JSON.stringify({ paths: [path] }),
-          });
-          showToast(`Started candidate search for ${path}`, "info", 3000);
-          loadInbox();
-        } catch (err) {
-          showToast(`Failed to start import: ${err.message}`, "error");
-          startBtn.disabled = false;
-          startBtn.textContent = "Start import";
-        }
-      });
-    }
-
-    dirsEl.appendChild(card);
-
-    // Focus restore must happen after appendChild: element.focus() does
-    // nothing while the element is detached (card is appended here).
-    if (isOpen && focusedIdInputPath === path) {
-      idInput.focus();
-    }
+  const entries = [];
+  data.inbox_dirs.forEach((dir) => {
+    entries.push({ key: dir.path, dir, act: acts.get(dir.path) || null, reviews: reviewsFor(dir.path) });
+    acts.delete(dir.path);
+  });
+  [...acts.values()].sort((a, b) => a.order - b.order).forEach((act) => {
+    entries.push({ key: act.key, dir: null, act, reviews: reviewsFor(act.key) });
+  });
+  reviews.filter((r) => !usedReviews.has(r.task_id)).forEach((r) => {
+    entries.push({ key: `review:${r.task_id}`, dir: null, act: null, reviews: [r] });
   });
 
+  const live = new Set(entries.map((e) => e.key));
+  for (const key of [...inboxOrder.keys()]) if (!live.has(key)) inboxOrder.delete(key);
+  entries.forEach((e) => { if (!inboxOrder.has(e.key)) inboxOrder.set(e.key, inboxSeq++); });
+  entries.sort((a, b) => inboxOrder.get(a.key) - inboxOrder.get(b.key));
+
+  const dirsEl = $("#inbox-dirs");
+  for (const [key, card] of [...inboxCards]) {
+    if (!live.has(key)) { card.el.remove(); inboxCards.delete(key); }
+  }
+  dirsEl.querySelector(".inbox-empty")?.remove();
+  entries.forEach((entry, i) => {
+    const sig = inboxCardSig(entry);
+    let card = inboxCards.get(entry.key);
+    if (!card || card.sig !== sig) {
+      const el = buildInboxCard(entry);
+      if (card) card.el.replaceWith(el);
+      card = { el, sig };
+      inboxCards.set(entry.key, card);
+    }
+    updateActivityStatus(card.el, entry.act);
+    if (dirsEl.children[i] !== card.el) dirsEl.insertBefore(card.el, dirsEl.children[i] || null);
+    if (openIdForms.has(entry.key) && focusedIdInputPath === entry.key) {
+      const input = card.el.querySelector("[data-id-input]");
+      if (input && document.activeElement !== input) input.focus();
+    }
+  });
+  if (entries.length === 0) {
+    dirsEl.insertAdjacentHTML("beforeend", '<p class="timer inbox-empty">Inbox is empty.</p>');
+  }
   for (const p of [...openIdForms.keys()]) {
-    if (!livePaths.has(p)) {
+    if (!live.has(p)) {
       openIdForms.delete(p);
       if (focusedIdInputPath === p) focusedIdInputPath = null;
     }
   }
-
-  const pendingEl = $("#pending-reviews");
-  pendingEl.innerHTML = "";
-  if (data.pending_review.length === 0) {
-    pendingEl.innerHTML = '<p class="timer">No items pending review.</p>';
+  if (inboxScrollTo && inboxCards.has(inboxScrollTo)) {
+    inboxCards.get(inboxScrollTo).el.scrollIntoView({ block: "center", behavior: "smooth" });
+    inboxScrollTo = null;
   }
-  data.pending_review.forEach((pr) => {
-    const card = document.createElement("div");
-    card.className = "card";
-    const statusText = pr.kind === "duplicate" ? "Possible duplicate" : "Candidates ready for review";
 
-    card.innerHTML = `
-      <div class="path">${escapeHtml(pr.path)}</div>
-      <div style="margin: 6px 0; font-size: 13px;">${statusText}</div>
-      <button data-review>Review</button>`;
-    card.querySelector("[data-review]").addEventListener("click", () => openReview(pr));
-    pendingEl.appendChild(card);
+  // Poll faster while something is in progress, so its step stays current.
+  clearTimeout(inboxFastPoll);
+  if (entries.some((e) => e.act && ACTIVITY_BUSY.has(e.act.state)) && $("#tab-inbox")?.classList.contains("active")) {
+    inboxFastPoll = setTimeout(loadInbox, 1000);
+  }
+}
+
+// What a card is built from. The live progress (step, requests, queue
+// position) isn't part of it: updateActivityStatus changes that in place,
+// so the spinner and open forms survive each poll.
+function inboxCardSig(entry) {
+  const a = entry.act;
+  return JSON.stringify({
+    dir: entry.dir && { imported: entry.dir.imported, album_id: entry.dir.album_id },
+    act: a && { state: ACTIVITY_BUSY.has(a.state) ? "busy" : a.state, kind: a.kind, label: a.label, error: a.error },
+    reviews: entry.reviews.map((r) => [r.task_id, r.kind]),
+    backfill: entry.dir ? backfillLineHtml(entry.key) : "",
   });
+}
+
+function activityRequestsText(act) {
+  const counts = Object.entries(act.requests || {}).map(([svc, n]) => `${svc} ×${n}`).join(" · ");
+  const now = act.waiting_on ? `waiting on ${act.waiting_on}` : "";
+  return [counts, now].filter(Boolean).join(" — ");
+}
+
+function updateActivityStatus(el, act) {
+  const box = el.querySelector("[data-activity]");
+  if (!box) return;
+  if (!act) { box.hidden = true; return; }
+  box.hidden = false;
+  let step = act.step;
+  if (act.state === "queued") {
+    step = act.queue_position ? `Waiting in the queue (${act.queue_position} ahead)` : "Waiting in the queue (next up)";
+  }
+  if (act.state === "failed") step = `Failed: ${act.error || "unknown error"}`;
+  const secs = Math.max(0, Math.round(Date.now() / 1000 - act.since));
+  const elapsed = ACTIVITY_BUSY.has(act.state) && secs >= 3 ? ` · ${secs}s` : "";
+  box.querySelector("[data-activity-step]").textContent = step + elapsed;
+  box.querySelector("[data-activity-requests]").textContent = act.state === "failed" ? "" : activityRequestsText(act);
+}
+
+function buildInboxCard(entry) {
+  const { key, dir, act, reviews: prs } = entry;
+  const busy = !!act && ACTIVITY_BUSY.has(act.state);
+  const failed = act?.state === "failed";
+  const inReview = prs.length > 0;
+  const card = document.createElement("div");
+  card.className = "card" + (dir?.imported ? " imported" : "") + (busy ? " busy" : "");
+  card.dataset.key = key;
+
+  let title, badgeHtml = "";
+  if (dir) {
+    title = escapeHtml(dir.path);
+    if (dir.imported) badgeHtml = '<span class="badge imported">Imported</span> ';
+  } else if (act) {
+    title = `${act.kind === "reimport" ? "Reimport" : "Import"}: ${escapeHtml(act.label)}`;
+  } else {
+    title = escapeHtml(prs[0].path);
+  }
+  if (inReview) badgeHtml += `<span class="badge pending">${prs.some((r) => r.kind === "duplicate") ? "Possible duplicate" : "Ready for review"}</span> `;
+  else if (busy) badgeHtml += '<span class="badge pending">In progress</span> ';
+  else if (failed) badgeHtml += '<span class="badge failed">Failed</span> ';
+
+  const reviewButtons = prs.map((r, i) =>
+    `<button data-review="${i}">${r.kind === "duplicate" ? "Review possible duplicate" : "Review"}</button>`).join("");
+  const lock = busy || inReview ? "disabled" : "";
+  let actionsHtml = reviewButtons;
+  if (dir?.imported) {
+    actionsHtml += `
+      <button class="secondary" data-reimport ${lock}>Re-import</button>
+      <button class="secondary" data-id-toggle ${lock}>Import with ID…</button>
+      <button class="danger" data-release ${lock} title="Imported before move mode: the inbox still holds a copy. Removes it once every file is checked to be restorable from the library (Undo import).">Remove inbox copy</button>`;
+  } else if (dir) {
+    actionsHtml += `
+      <button data-start ${lock}>Start import</button>
+      <button class="secondary" data-id-toggle ${lock}>Import with ID…</button>`;
+  }
+  if (failed) actionsHtml += `<button class="secondary" data-dismiss>Dismiss</button>`;
+
+  const idFormHtml = dir ? `
+      <div class="row" data-id-form style="display:none">
+        <input type="text" placeholder="Paste MusicBrainz ID or URL" style="flex:1" data-id-input />
+        <button data-id-go>Start import with ID</button>
+      </div>` : "";
+
+  card.innerHTML = `
+      <div class="path">${badgeHtml}${title}</div>
+      ${dir ? backfillLineHtml(key) : ""}
+      <div class="activity-status${failed ? " failed" : ""}" data-activity hidden>
+        ${busy ? '<span class="spinner"></span>' : ""}
+        <span data-activity-step></span>
+        <div class="muted activity-requests" data-activity-requests></div>
+      </div>
+      <div class="row">${actionsHtml}</div>
+      ${idFormHtml}`;
+  if (dir && !busy && !inReview) card.querySelector("[data-backfill]")?.addEventListener("click", () => openBackfillModal([key]));
+  else card.querySelectorAll("[data-backfill]").forEach((b) => (b.disabled = true));
+  card.querySelectorAll("[data-review]").forEach((b) => b.addEventListener("click", () => openReview(prs[+b.dataset.review])));
+  card.querySelector("[data-dismiss]")?.addEventListener("click", async () => {
+    await api("/api/activity/dismiss", { method: "POST", body: JSON.stringify({ key }) }).catch(() => {});
+    loadInbox();
+  });
+  if (dir) wireFolderCard(card, dir);
+  return card;
+}
+
+// Buttons of an inbox folder's card: start, Direct ID, reimport, release.
+function wireFolderCard(card, dir) {
+  const path = dir.path;
+  const imported = !!dir.imported;
+  const albumId = dir.album_id;
+
+  const idToggle = card.querySelector("[data-id-toggle]");
+  const idForm = card.querySelector("[data-id-form]");
+  const idInput = card.querySelector("[data-id-input]");
+  // Restore open-state and typed text when the card is rebuilt.
+  // openIdForms.has(), not truthiness -- an open-but-empty form stores "".
+  if (openIdForms.has(path) && !idToggle.disabled) {
+    idForm.style.display = "flex";
+    idInput.value = openIdForms.get(path) || "";
+  }
+  idToggle.addEventListener("click", () => {
+    const visible = idForm.style.display !== "none";
+    idForm.style.display = visible ? "none" : "flex";
+    if (visible) {
+      openIdForms.delete(path);
+      if (focusedIdInputPath === path) focusedIdInputPath = null;
+    } else {
+      openIdForms.set(path, idInput.value);
+      idInput.focus();
+    }
+  });
+  idInput.addEventListener("input", () => openIdForms.set(path, idInput.value));
+  // Do NOT clear on blur (Chrome fires it during DOM teardown); a
+  // document-level pointerdown outside the form clears the tracker.
+  idInput.addEventListener("focus", () => (focusedIdInputPath = path));
+
+  const idGo = card.querySelector("[data-id-go]");
+  const resetIdGo = () => {
+    idGo.disabled = false;
+    idGo.textContent = "Start import with ID";
+  };
+  idGo.addEventListener("click", async () => {
+    // Raw pass-through: no client-side URL parsing or extraction.
+    const raw = idInput.value.trim();
+    if (!raw) return;
+    idGo.disabled = true;
+    idGo.textContent = "Starting…";
+    try {
+      if (imported) {
+        if (!albumId) {
+          showToast("Cannot Direct-ID-import: library album ID unavailable from marker data. Use Re-import instead.", "error");
+          resetIdGo();
+          return;
+        }
+        await api("/api/reimport", {
+          method: "POST",
+          body: JSON.stringify({ album_ids: [albumId], search_id: raw, from_scratch: false, set_fields: {} }),
+        });
+      } else {
+        await api("/api/inbox/start", {
+          method: "POST",
+          body: JSON.stringify({ paths: [path], search_ids: { [path]: raw } }),
+        });
+      }
+      openIdForms.delete(path);
+      loadInbox();
+      if (!imported) openReviewWhenReady(path);
+    } catch (err) {
+      showToast(`Failed to start import: ${err.message}`, "error");
+      resetIdGo();
+    }
+  });
+
+  if (imported) {
+    card.querySelector("[data-reimport]").addEventListener("click", () => {
+      if (albumId) openReimport([albumId]);
+      else showToast("Album ID not available for reimport.", "error");
+    });
+    card.querySelector("[data-release]").addEventListener("click", async (e) => {
+      e.target.disabled = true;
+      const toast = createProgressToast(`Checking ${path}…`);
+      try {
+        const r = await api("/api/inbox/release", { method: "POST", body: JSON.stringify({ path }) });
+        toast.done(`Removed the inbox copy: ${r.audio_files} track${r.audio_files === 1 ? "" : "s"} restorable with Undo import${r.other_files ? `, ${r.other_files} other file${r.other_files === 1 ? "" : "s"} kept with the album` : ""}.`);
+        loadInbox();
+      } catch (err) {
+        e.target.disabled = false;
+        const problems = err.data?.problems?.length ? ` ${err.data.problems.join(" ")}` : "";
+        toast.error(`Kept the inbox copy: ${err.message}${problems}`);
+      }
+    });
+  } else {
+    const startBtn = card.querySelector("[data-start]");
+    startBtn.addEventListener("click", async () => {
+      startBtn.disabled = true;
+      startBtn.textContent = "Starting…";
+      try {
+        await api("/api/inbox/start", { method: "POST", body: JSON.stringify({ paths: [path] }) });
+        loadInbox();
+      } catch (err) {
+        showToast(`Failed to start import: ${err.message}`, "error");
+        startBtn.disabled = false;
+        startBtn.textContent = "Start import";
+      }
+    });
+  }
 }
 
 // "Tags after import": the files' tags now vs. after importing with the
@@ -1371,7 +1450,7 @@ async function openReimport(albumIds) {
 
     const toast = createProgressToast(`Starting reimport for ${albumIds.length} album(s)…`);
     try {
-      await api("/api/reimport", {
+      const res = await api("/api/reimport", {
         method: "POST",
         body: JSON.stringify({
           album_ids: albumIds,
@@ -1381,7 +1460,8 @@ async function openReimport(albumIds) {
         }),
       });
       backdrop.close();
-      toast.done("Reimport queued. Check Inbox tab.");
+      inboxScrollTo = res.key || null;
+      toast.done("Reimport started. It's on the Inbox tab.");
       document.querySelector('#tabs button[data-tab="inbox"]').click();
     } catch (err) {
       toast.error(`Reimport failed: ${err.message}`);

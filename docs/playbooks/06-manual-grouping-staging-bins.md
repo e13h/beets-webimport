@@ -119,7 +119,7 @@ Wait for both staging bins to be processed by the worker pool and appear in the 
 ```
 
 **Expected Outcome:**
-- Two distinct cards appear under `#pending-reviews`:
+- Two distinct cards appear in `#inbox-dirs` (the Inbox tab is one list):
   - One for `.../_grouped/<id>/bin_0`
   - One for `.../_grouped/<id>/bin_1`
 - Confirms each staging bin is processed as an independent `ImportTask` rather than a single mixed task.
@@ -133,7 +133,7 @@ Open review for `bin_0`, inspect candidates (or override with target MBID `4e929
 // Tool Call: browser_click
 {
   "element": "Review button for bin_0",
-  "target": "#pending-reviews .card:has(.path:text('bin_0')) button[data-review]"
+  "target": "#inbox-dirs .card:has(.path:text('bin_0')) button[data-review]"
 }
 ```
 
@@ -154,7 +154,7 @@ Apply match (either by selecting candidate 0 or using search ID override):
 
 **Expected Outcome:**
 - Review modal closes.
-- The `bin_0` card disappears from `#pending-reviews`.
+- The `bin_0` card loses its Review button.
 - Server acquires Apply Lock and moves `bin_0`'s files into the library (2 of the release's tracks: a partial album, kept together as the album).
 
 ---
@@ -166,7 +166,7 @@ Open review for `bin_1`, select the appropriate match (or click "Use as-is"), an
 // Tool Call: browser_click
 {
   "element": "Review button for bin_1",
-  "target": "#pending-reviews .card:has(.path:text('bin_1')) button[data-review]"
+  "target": "#inbox-dirs .card:has(.path:text('bin_1')) button[data-review]"
 }
 ```
 

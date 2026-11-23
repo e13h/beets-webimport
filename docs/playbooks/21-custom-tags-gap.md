@@ -83,7 +83,7 @@ graph TD
    // browser_click
    {
      "element": "Review button",
-     "target": "#pending-reviews .card button[data-review]"
+     "target": "#inbox-dirs .card button[data-review]"
    }
    ```
    ```json
