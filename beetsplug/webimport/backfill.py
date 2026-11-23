@@ -42,7 +42,10 @@ log = logging.getLogger("beets.webimport")
 
 FP_SECONDS = 120  # fingerprint the first two minutes
 SIM_MIN = 0.85  # same recording: measured 0.90+, different recordings far below
-LENGTH_TOLERANCE = 3.0  # seconds
+LENGTH_TOLERANCE = 3.0  # seconds, measured from both files
+# The DB's length can be seconds off the file's (beets' OGG estimates on
+# the homelab: up to 5 s), so it only narrows the candidates.
+DB_LENGTH_WINDOW = 15.0
 EQUAL_BITRATE_BAND = 0.1  # within 10%: same quality
 LOSSLESS = {"FLAC", "ALAC", "WAV", "AIFF", "APE", "WavPack", "TrueAudio"}
 PROPERTY_FIELDS = ("length", "bitrate", "bitrate_mode", "format", "samplerate", "bitdepth",
@@ -262,7 +265,7 @@ class LibraryIndex:
         self.by_length.sort(key=lambda x: x[0])
 
     def near_length(self, length: float) -> list:
-        return [i for (l, i) in self.by_length if abs(l - length) <= LENGTH_TOLERANCE]
+        return [i for (l, i) in self.by_length if abs(l - length) <= DB_LENGTH_WINDOW]
 
 
 def _album_name(lib, item) -> tuple[int | None, str]:
@@ -286,9 +289,15 @@ def _match_file(lib, index: LibraryIndex, cache: Cache, p: Path) -> list[tuple[T
         fp = cache.fingerprint(p) if cands else None
         if fp:
             for item in cands:
-                sim = similarity(fp, cache.fingerprint(Path(os.fsdecode(item.path))))
-                if sim >= SIM_MIN:
-                    found.append(("same recording", round(sim, 3), item))
+                lib_path = Path(os.fsdecode(item.path))
+                sim = similarity(fp, cache.fingerprint(lib_path))
+                if sim < SIM_MIN:
+                    continue
+                # Same opening, different length: an edit or another mix.
+                lq = quality_of_file(lib_path)
+                if lq is None or abs(lq.length - q.length) > LENGTH_TOLERANCE:
+                    continue
+                found.append(("same recording", round(sim, 3), item))
     if not found:
         return [(Track(str(p), "new", download=q.label()), [])]
     found.sort(key=lambda x: -x[1])

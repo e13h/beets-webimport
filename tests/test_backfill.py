@@ -243,3 +243,26 @@ def test_scan_and_apply_job(lib, tmp_path, fingerprints):
     assert st["last_apply"]["attached"] == 1
     assert set(Path(k).name for k in st["results"]) == {"B"}
     assert originals.load(lib.get_item(item.id))
+
+
+def test_stale_db_length_still_matches_but_real_length_must_agree(lib, tmp_path, fingerprints, monkeypatch):
+    # The homelab DB had OGG lengths 3-5 s off the files'.
+    _, item = library_album(lib, "tone.ogg", "01 Same.ogg")
+    item.length = item.length + 5
+    item.store()
+    inbox = tmp_path / "inbox"
+    tagged(FIXTURES / "tone.mp3", inbox / "A" / "same.mp3")
+    monkeypatch.setattr(backfill, "compare", lambda a, b: "better")
+    _, _, tracks = run(lib, inbox, tmp_path)
+    assert [t.action for t in tracks] == ["replace"]
+
+    # Fingerprints agree but the files' real lengths don't: an edit, not a match.
+    real = backfill.quality_of_file
+    def longer_library(p):
+        q = real(p)
+        if q and p.suffix == ".ogg":
+            q.length += 10
+        return q
+    monkeypatch.setattr(backfill, "quality_of_file", longer_library)
+    _, _, tracks = run(lib, inbox, tmp_path / "fresh")
+    assert [t.action for t in tracks] == ["new"]
