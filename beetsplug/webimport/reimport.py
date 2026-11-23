@@ -41,8 +41,11 @@ log = logging.getLogger("beets.webimport")
 
 
 def _build_query(album_ids: list[int]) -> str:
-    # beets top-level `,` is OR; album_id is a valid Item field.
-    return ", ".join(f"album_id:{aid}" for aid in album_ids)
+    """The reimport runs an *album* query (beets' query_tasks), so match
+    the album's own `id`: `album_id` isn't an album field, and beets
+    matches it as a substring there (album_id:6 also found 16, 26, 36...).
+    beets' top-level `,` is OR."""
+    return " , ".join(f"id:{int(aid)}" for aid in album_ids)
 
 
 @contextmanager
@@ -113,6 +116,8 @@ def run_reimport(
                 # release(s) linked to their Apple Music listing.
                 session.apple_match_items = apple_music_match
             session.reimport_set_fields = dict(set_fields or {})
+            # Only these files may be reimported, whatever the query finds.
+            session.reimport_paths = {bytes(p) for p in paths}
             session.start_from_originals = True
             session.run()
     finally:

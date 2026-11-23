@@ -61,3 +61,12 @@ match as neither.
 `--from-scratch` (clear every tag field, then apply the release) is only
 offered for albums without stored originals. With originals it would
 discard the purchase's tags this is meant to keep.
+
+## The reimport query
+
+A reimport runs an album query. It used `album_id:<id>`, which isn't an
+album field, so beets matched it as a substring: reimporting album 6 also
+queued 16, 26, 36… (found on the homelab, 21 albums). It now matches the
+album's own `id`, and the session skips, without a review, any task whose
+files aren't the requested albums' (`reimport_paths`), so a query can never
+put another album up for reimport.

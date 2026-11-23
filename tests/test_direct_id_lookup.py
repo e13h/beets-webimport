@@ -7,6 +7,7 @@ backends stubbed, and record which lookups happen.
 """
 from __future__ import annotations
 
+import os
 import threading
 import time
 
@@ -378,3 +379,93 @@ def test_reimport_starts_from_the_stored_originals_tags(lib, tmp_path, create_wa
     new = next(iter(lib.items()))
     assert (new.title, new.artist, new.album, new.label) == ("Bought Title", "Store Artist", "Store Album", "")
     assert originals.load(new) == record  # still restorable afterwards
+
+
+@pytest.fixture
+def thirteen_albums(lib, tmp_path, create_wav_file):
+    from beets.library import Item
+
+    albums = []
+    for i in range(1, 14):
+        path = create_wav_file(tmp_path / "music" / "X" / f"A{i}" / "01.wav")
+        item = Item.from_path(str(path))
+        item.update({"title": "t", "album": f"A{i}", "albumartist": "X", "artist": "X", "track": 1})
+        lib.add(item)
+        albums.append(lib.add_album([item]))
+    return albums
+
+
+def _reviews_of(lib, session):
+    rm = session.review_manager
+    seen = []
+
+    def run():
+        beets_context.set_music_dir(lib.directory)
+        session.run()
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    deadline = time.monotonic() + 10
+    while t.is_alive() and time.monotonic() < deadline:
+        for pr in rm.list_pending():
+            if pr["task_id"] not in {s["task_id"] for s in seen}:
+                seen.append(pr)
+                rm.submit_decision(pr["task_id"], {"action": "skip"})
+        time.sleep(0.02)
+    t.join(timeout=1)
+    assert not t.is_alive()
+    return [s["path"] for s in seen]
+
+
+def test_reimport_of_album_2_reviews_only_album_2(lib, thirteen_albums, lookups, monkeypatch):
+    """Production bug: the query album_id:6 matched albums 16, 26, 36...
+    (an album query matches album_id as a substring)."""
+    from beetsplug.webimport import itunes, purchase, reimport
+
+    monkeypatch.setattr(itunes, "musicbrainz_match_for_items", lambda items: None)
+    monkeypatch.setattr(purchase, "detect_store", lambda items, folder, library=False: None)
+    album2 = thirteen_albums[1]
+    rm = ReviewManager()
+    reviewed = []
+    orig_register = rm.register
+
+    def register(kind, path, payload, task=None):
+        reviewed.append(path)
+        return orig_register(kind, path, payload, task=task)
+
+    rm.register = register
+
+    def run():
+        beets_context.set_music_dir(lib.directory)
+        reimport.run_reimport(lib, rm, None, [album2.id])
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    deadline = time.monotonic() + 10
+    while t.is_alive() and time.monotonic() < deadline:
+        for pr in rm.list_pending():
+            rm.submit_decision(pr["task_id"], {"action": "skip"})
+        time.sleep(0.02)
+    t.join(timeout=1)
+    assert not t.is_alive()
+    assert reviewed == [os.fsdecode(album2.item_dir())]
+
+
+def test_reimport_skips_albums_it_wasnt_asked_for(lib, thirteen_albums, lookups, monkeypatch):
+    """Guard: whatever the query finds, only the requested albums' files
+    reach a review."""
+    from beetsplug.webimport import itunes, purchase
+
+    monkeypatch.setattr(itunes, "musicbrainz_match_for_items", lambda items: None)
+    monkeypatch.setattr(purchase, "detect_store", lambda items, folder, library=False: None)
+    album2 = thirteen_albums[1]
+    session = WebImportSession(lib, None, None, "album_id:2", ReviewManager(), None)  # the old, too-broad query
+    session.reimport_paths = {bytes(i.path) for i in album2.items()}
+    assert _reviews_of(lib, session) == [os.fsdecode(album2.item_dir())]
+
+
+def test_reimport_query_matches_album_ids_exactly(lib, thirteen_albums):
+    from beetsplug.webimport.reimport import _build_query
+
+    ids = [a.id for a in lib.albums(_build_query([2, 3]))]
+    assert sorted(ids) == [2, 3]

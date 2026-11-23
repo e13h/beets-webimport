@@ -100,6 +100,10 @@ class WebImportSession(importer.ImportSession):
         # Reimport: start from the stored originals' tags where every
         # track has one (reimport.on_task_created).
         self.start_from_originals = False
+        # Reimport: the requested albums' file paths. A task holding any
+        # other file is skipped without a review (a guard against a query
+        # matching more than the albums the user picked).
+        self.reimport_paths: set[bytes] | None = None
         self._apple_match_tried: set[int] = set()
         # Image bytes chosen in the review, set as the album's art in the
         # file stage (artchoice.on_import_task_files). None: leave art alone.
@@ -172,6 +176,12 @@ class WebImportSession(importer.ImportSession):
     def choose_match(self, task: importer.ImportTask):
         if self.query is not None:
             _resolve_item_paths(task.items)
+            if self.reimport_paths is not None:
+                stray = [i.path for i in task.items if bytes(i.path) not in self.reimport_paths]
+                if stray:
+                    log.warning("webimport: reimport query found an album that wasn't requested (%s); skipped",
+                                displayable_path(stray[0]))
+                    return Action.SKIP
             if self.reimport_set_fields is not None and not getattr(task, "_wi_keeps_fields", False):
                 from .reimport import keep_library_fields
 
