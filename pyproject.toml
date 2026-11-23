@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "beets-webimport"
-version = "0.1.3"
+version = "0.1.4"
 description = "A native beets plugin providing a fast, mobile-friendly web UI for import review, library browsing, tagging, and multi-library routing."
 readme = "README.md"
 requires-python = ">=3.10"

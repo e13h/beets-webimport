@@ -1310,12 +1310,25 @@ async function openReimport(albumIds) {
       <label><input type="checkbox" data-fromscratch /> <b>--from-scratch</b> (erase existing metadata first)</label>
     </div>
     <div class="row">
-      <input type="text" placeholder="navidrome_library value to --set (optional)" data-setlib list="listening-groups-list" style="flex:1" />
+      <label style="flex:1">navidrome_library
+        <input type="text" placeholder="keep each album's current value" data-setlib list="listening-groups-list" />
+      </label>
     </div>
     <div class="row">
       <button data-go>Run reimport</button>
     </div>
     <p class="timer">Result goes through the same review/undo flow as a fresh import — check the Inbox tab after running.</p>`;
+
+  // Prefill the album's current Listening Group, so the field shows what
+  // the reimport keeps (blank also keeps it: the config's set_fields
+  // defaults don't apply to reimports, ADR-0017).
+  const libInput = container.querySelector("[data-setlib]");
+  Promise.all(albumIds.map((id) => api(`/api/library/albums/${id}`).then((d) => d.fields.navidrome_library || "")))
+    .then((values) => {
+      const same = new Set(values);
+      if (same.size === 1 && values[0] && !libInput.value) libInput.value = values[0];
+    })
+    .catch(() => {});
 
   const fsBox = container.querySelector("[data-fromscratch]");
   fsBox.addEventListener("change", () => {
