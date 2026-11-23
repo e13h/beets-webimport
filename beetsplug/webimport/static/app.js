@@ -1524,6 +1524,15 @@ function openBackfillModal(paths) {
 
 // -- init ---------------------------------------------------------------
 loadInbox();
+api("/api/version")
+  .then((v) => {
+    const el = $("#version");
+    const tags = v.tags?.length ? ` · ${v.tags.join(", ")}` : "";
+    const date = v.date ? ` · ${v.date.slice(0, 10)}` : "";
+    el.textContent = `beets-webimport ${v.label}${tags}${date}`;
+    el.title = v.commit ? `commit ${v.commit}` : "commit unknown";
+  })
+  .catch(() => {});
 setInterval(() => {
   if ($("#tab-inbox")?.classList.contains("active")) loadInbox();
 }, 5000);

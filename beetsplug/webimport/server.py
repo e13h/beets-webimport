@@ -11,7 +11,7 @@ from beets import config as beets_config
 from beets import context as beets_context
 from beets.util import syspath
 
-from . import artchoice, backfill, coverart, itunes, library, lifecycle, originals, reimport, restore, snapshot, tagpreview, tags
+from . import artchoice, backfill, coverart, itunes, library, lifecycle, originals, reimport, restore, snapshot, tagpreview, tags, version
 from .navidrome import NavidromeClient
 from .pendingmove import Mover
 from .queue import InboxWorkerPool, ReviewManager
@@ -117,6 +117,8 @@ def create_app(lib, wi_config, plugin):
         log.exception("webimport: startup cleanup failed")
 
     loghandler = None  # let beets use its default logging
+    build = version.info()
+    log.info("webimport: running %s%s", build["label"], f", committed {build['date']}" if build["date"] else "")
 
     # -- Pending Move (ADR-0011) -------------------------------------------
     try:
@@ -444,6 +446,11 @@ def create_app(lib, wi_config, plugin):
             return jsonify({"error": str(exc), "problems": exc.problems}), 409
         finally:
             apply_lock.release()
+
+    @app.get("/api/version")
+    def api_version():
+        """Which build is running: package version, commit, tags."""
+        return jsonify(version.info())
 
     @app.get("/api/backfill")
     def api_backfill_status():
