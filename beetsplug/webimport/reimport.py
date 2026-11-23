@@ -8,7 +8,11 @@ config for the duration of the reimport session, then restores the prior
 values -- so it applies via the exact same code path the CLI flags use.
 
 Goes through the same WebImportSession / ReviewManager mechanism as a
-fresh import (per PRD).
+fresh import (per PRD), and suggests what a fresh import of the store
+download would: for an iTunes purchase, the MusicBrainz release(s) linked
+to its Apple Music listing and the iTunes Store art; for store purchases,
+the likeliest digital releases. The store IDs are read from the files or,
+when an earlier import rewrote their tags, from the stored originals.
 
 With Navidrome integration on (a Mover that is `enabled`), the reimport is
 two-phase (ADR-0011): the session writes the new tags with file moves
@@ -58,6 +62,7 @@ def run_reimport(
     from_scratch: bool = False,
     set_fields: dict | None = None,
     mover=None,
+    apple_music_match: bool = False,
 ):
     """Runs synchronously in the calling (worker) thread -- caller is
     expected to invoke this inside a background thread/executor, same as
@@ -89,6 +94,11 @@ def run_reimport(
             session.hold_files = two_phase
             if search_id:
                 session.preset_search_id = search_id  # consumed by choose_match on first pass
+            else:
+                # As for an inbox folder: iTunes purchases start from the
+                # release(s) linked to their Apple Music listing.
+                session.apple_match_items = apple_music_match
+            session.reimport_set_fields = dict(set_fields or {})
             session.run()
     finally:
         if lock_acquired:
@@ -109,3 +119,44 @@ def hand_to_mover(lib, mover, paths) -> None:
                 continue
             seen.add(key)
             mover.relocate_item(item, wrote_tags=True)
+
+
+def keep_library_fields(task, explicit: dict) -> None:
+    """Make `task.set_fields` apply only the fields the user asked for.
+
+    The config's `import.set_fields` are defaults for new imports (the
+    homelab sets `navidrome_library: unassigned`). beets applies them to a
+    reimport too, right after copying the replaced album's fields onto the
+    new rows (`reimport_metadata`), which would reset every album's
+    Listening Group and move its files. So any field the user didn't set
+    in the Reimport dialog goes back to what the album and tracks had."""
+    if not getattr(task, "is_album", False):
+        return
+    original = task.set_fields
+
+    def set_fields(lib):
+        album, items = task.album, list(task.imported_items())
+        keys = [k for k in beets.config["import"]["set_fields"].keys() if k not in explicit]
+        before = ({k: album.get(k) for k in keys} if album is not None else {},
+                  [{k: item.get(k) for k in keys} for item in items])
+        original(lib)
+        album_vals, item_vals = before
+        with lib.transaction():
+            for item, vals in zip(items, item_vals):
+                _restore(item, vals)
+            if album is not None:
+                _restore(album, album_vals)
+
+    task.set_fields = set_fields
+
+
+def _restore(obj, values: dict) -> None:
+    changed = False
+    for key, value in values.items():
+        if value is None or value == "":
+            continue  # the album didn't have it: the default applies
+        if obj.get(key) != value:
+            obj[key] = value
+            changed = True
+    if changed:
+        obj.store()

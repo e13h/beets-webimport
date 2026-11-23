@@ -190,3 +190,49 @@ def test_mb_unreachable_is_not_cached(purchase_dir, monkeypatch):
 def test_not_a_purchase(tmp_path, monkeypatch):
     monkeypatch.setattr(itunes, "_read_mp4_tags", lambda p: None)
     assert itunes.musicbrainz_match_for_dir(tmp_path) is None
+
+
+# -- library items (reimport) ------------------------------------------------
+
+class FakeItem(dict):
+    def __init__(self, path, original=None):
+        super().__init__(original_file=original)
+        self.path = path.encode()
+
+
+def test_ids_from_library_files_then_stored_originals(tmp_path, monkeypatch):
+    from beetsplug.webimport import originals
+
+    a, b = tmp_path / "01.m4a", tmp_path / "02.m4a"
+    monkeypatch.setattr(itunes, "_read_mp4_tags", lambda p: None)  # tags rewritten on import
+    monkeypatch.setattr(originals, "load", lambda item: item.get("original_file"))
+    monkeypatch.setattr(originals, "rebuild", lambda rec, path: rec["bytes"])
+    monkeypatch.setattr(itunes, "_read_mp4_bytes",
+                        lambda data: {"plID": [1440662312], "sfID": [143444]} if data == b"store" else None)
+    items = [FakeItem(str(a)), FakeItem(str(b), {"name": "02 Song.m4a", "bytes": b"store"})]
+    assert itunes.detect_ids_for_items(items) == {"collection_id": 1440662312, "country": "gb"}
+
+    monkeypatch.setattr(itunes, "_read_mp4_tags", lambda p: {"plID": [7]} if p == a else None)
+    assert itunes.detect_ids_for_items(items) == {"collection_id": 7, "country": None}
+
+
+def test_stored_original_that_cant_be_rebuilt_is_skipped(tmp_path, monkeypatch):
+    from beetsplug.webimport import originals
+
+    def rebuild(rec, path):
+        raise originals.RestoreError("missing")
+
+    monkeypatch.setattr(itunes, "_read_mp4_tags", lambda p: None)
+    monkeypatch.setattr(originals, "load", lambda item: item.get("original_file"))
+    monkeypatch.setattr(originals, "rebuild", rebuild)
+    assert itunes.detect_ids_for_items([FakeItem(str(tmp_path / "1.m4a"), {"name": "1.m4a"})]) is None
+
+
+def test_relative_item_paths_are_resolved_against_the_music_dir(tmp_path, monkeypatch):
+    from beets import context
+
+    seen = []
+    monkeypatch.setattr(itunes, "_read_mp4_tags", lambda p: seen.append(p) or {"plID": [5]})
+    with context.music_dir(str(tmp_path).encode()):
+        assert itunes.detect_ids_for_items([FakeItem("kids/A/01.m4a")])["collection_id"] == 5
+    assert seen == [tmp_path / "kids/A/01.m4a"]

@@ -36,7 +36,9 @@ surfaced for correction rather than silently falling back to a heuristic
 match. On a folder already imported, a Direct ID Import routes through
 the Reimport flow in the Library tab (query-driven against the library
 record, per ADR-0005), not a fresh path-driven session — avoiding the
-silent-duplicate trap. Two-Phase Edit applies to the Library-tab Reimport
+silent-duplicate trap. A Reimport keeps the album's Listening Group unless
+the dialog sets one (the config's `set_fields` are for new imports,
+ADR-0017). Two-Phase Edit applies to the Library-tab Reimport
 apply, since those files already exist in Navidrome.
 
 **Undo Import**:
@@ -88,8 +90,10 @@ _Avoid_: move queue, deferred move
 **Art Choice**:
 The album art the user picks in candidate review for after import: keep the
 files' current embedded art, the selected release's Cover Art Archive art,
-iTunes Store art (iTunes purchases), or an image file in the inbox folder.
-webimport applies it as the album's art; embedart embeds it (ADR-0013).
+iTunes Store art (iTunes purchases, inbox imports and reimports alike), or
+an image file in the inbox folder. webimport applies it as the album's art;
+embedart embeds it (ADR-0013). A reimport finds the iTunes IDs in the
+stored originals when the files no longer carry them (ADR-0017).
 _Avoid_: source art, resolved art (the retired dual preview)
 
 **Original File**:

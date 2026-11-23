@@ -24,6 +24,7 @@ import tempfile
 import threading
 import time
 from collections import Counter, OrderedDict
+from dataclasses import dataclass
 from pathlib import Path
 
 import requests
@@ -156,26 +157,51 @@ def embedded_art(folder: Path) -> dict | None:
     return result
 
 
-def inbox_options(folder: Path) -> dict:
-    """Art the folder's files already have ("keep"), an image file in the
-    folder, and iTunes Store art for iTunes purchases. Each present option
-    is described (size, image_url); absent ones are None."""
+@dataclass
+class ArtSource:
+    """Where a review's art options come from: the album's folder (its
+    files' art, "keep"), whether an image file in it is an option (inbox
+    folders only: in the library that's beets' own copy of the current
+    art), and the iTunes IDs, if the album is an iTunes purchase."""
+    folder: Path
+    itunes_ids: dict | None
+    folder_images: bool = True
+
+    @classmethod
+    def inbox(cls, folder: Path) -> "ArtSource":
+        return cls(Path(folder), itunes.detect_ids(folder))
+
+    @classmethod
+    def library(cls, folder: Path, items) -> "ArtSource":
+        """A reimport: the IDs may survive only in the stored originals."""
+        return cls(Path(folder), itunes.detect_ids_for_items(items), folder_images=False)
+
+
+def options(source: ArtSource) -> dict:
+    """Art the files already have ("keep"), an image file in the folder,
+    and iTunes Store art for iTunes purchases. Each present option is
+    described (size, image_url); absent ones are None."""
+    folder = source.folder
     out: dict = {"keep": None, "folder": None, "itunes": None}
     emb = embedded_art(folder)
     if emb:
         out["keep"] = {**describe(emb["data"]), **{k: v for k, v in emb.items() if k != "data"}}
-    img = folder_image(folder)
+    img = folder_image(folder) if source.folder_images else None
     if img is not None:
         try:
             out["folder"] = {**describe(img.read_bytes()), "name": img.name}
         except OSError:
             pass
-    ids = itunes.detect_ids(folder)
+    ids = source.itunes_ids
     if ids is not None:
         info, data = itunes.lookup_album(ids["collection_id"], ids["country"])
         meta = {k: info.get(k) for k in ("collection_id", "collection_name", "artist", "store_url", "error")}
         out["itunes"] = {**describe(data), **meta} if data else meta
     return out
+
+
+def inbox_options(folder: Path) -> dict:
+    return options(ArtSource.inbox(folder))
 
 
 # -- Cover Art Archive ------------------------------------------------------------
@@ -275,7 +301,7 @@ def default_choice(options: dict, candidate: dict | None) -> str:
     return "keep"
 
 
-def chosen_image(choice: str, folder: Path, candidate_ids: tuple | None) -> bytes | None:
+def chosen_image(choice: str, source: ArtSource, candidate_ids: tuple | None) -> bytes | None:
     """The bytes to set as album art for `choice`; None for "keep".
     Raises ValueError if the choice isn't available."""
     if choice == "keep":
@@ -289,7 +315,7 @@ def chosen_image(choice: str, folder: Path, candidate_ids: tuple | None) -> byte
                              if r["state"] == "none" else "The Cover Art Archive couldn't be reached.")
         return r["data"]
     if choice == "itunes":
-        ids = itunes.detect_ids(folder)
+        ids = source.itunes_ids
         if ids is None:
             raise ValueError("Not an iTunes purchase.")
         info, data = itunes.lookup_album(ids["collection_id"], ids["country"])
@@ -297,7 +323,7 @@ def chosen_image(choice: str, folder: Path, candidate_ids: tuple | None) -> byte
             raise ValueError(info.get("error") or "No iTunes artwork available.")
         return data
     if choice == "folder":
-        img = folder_image(folder)
+        img = folder_image(source.folder) if source.folder_images else None
         if img is None:
             raise ValueError("No image file in the folder.")
         return img.read_bytes()

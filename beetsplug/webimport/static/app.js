@@ -705,13 +705,13 @@ async function openReview(pr) {
 
 // Album art for an import. Shows what the files have now ("keep") and the
 // options for after import: the selected release's Cover Art Archive art,
-// iTunes Store art (iTunes purchases), or an image file in the inbox
-// folder. Images come from the server (/api/art/<sha1>, cached forever),
+// iTunes Store art (iTunes purchases, inbox imports and reimports alike),
+// or an image file in the inbox folder. Images come from the server (/api/art/<sha1>, cached forever),
 // which applies the choice on import. Default, mirrored from
 // artchoice.default_choice: folder image, else iTunes art, else the larger
 // of the files' art and the Cover Art Archive art.
 function createArtChoiceCard(host, pr) {
-  let options = null;       // /api/inbox/art_options
+  let options = null;       // /api/review/<task_id>/art_options
   let candidate = null;     // focused candidate
   const caa = {};           // album_id -> /api/coverart/candidate result (or {state: "loading"})
   let selected = null;
@@ -812,7 +812,7 @@ function createArtChoiceCard(host, pr) {
   }
 
   render();
-  api(`/api/inbox/art_options?path=${encodeURIComponent(pr.path)}`)
+  api(`/api/review/${encodeURIComponent(pr.task_id)}/art_options`)
     .then((o) => { options = o; render(); })
     .catch(() => { options = { keep: null, folder: null, itunes: null }; render(); });
 

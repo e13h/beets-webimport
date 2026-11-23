@@ -35,9 +35,13 @@ def clear_cache() -> None:
         _cache.clear()
 
 
-def detect_store(items, folder) -> str | None:
-    """"itunes", "amazon", or None."""
+def detect_store(items, folder, library: bool = False) -> str | None:
+    """"itunes", "amazon", or None. `library`: items already in the
+    library (a reimport), whose store IDs may survive only in their stored
+    originals."""
     if folder and itunes.detect_ids(Path(folder)) is not None:
+        return "itunes"
+    if library and itunes.detect_ids_for_items(items) is not None:
         return "itunes"
     if any(AMAZON_COMMENT in (item.get("comments") or "") for item in items):
         return "amazon"

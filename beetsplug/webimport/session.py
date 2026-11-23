@@ -17,9 +17,11 @@ import confuse
 
 from beets import autotag, importer
 from beets.importer import Action, DuplicateAction
+from beets import context as beets_context
+from beets import util as beets_util
 from beets.util import displayable_path
 
-from . import purchase, snapshot
+from . import itunes, purchase, snapshot
 
 log = logging.getLogger("beets.webimport")
 
@@ -87,6 +89,15 @@ class WebImportSession(importer.ImportSession):
         # Reported in the review payload; an empty result then falls back
         # to a normal search instead of showing the "no candidate" error.
         self.matched_via: dict | None = None
+        # Reimport (reimport.py): find each album's Apple Music match
+        # itself, as the inbox does for a folder before the session starts
+        # (the store IDs may survive only in the stored originals).
+        self.apple_match_items = False
+        # Reimport: the fields the user set in the dialog. Other
+        # `import.set_fields` defaults don't overwrite what the album has
+        # (reimport.keep_library_fields). None: not a reimport.
+        self.reimport_set_fields: dict | None = None
+        self._apple_match_tried: set[int] = set()
         # Image bytes chosen in the review, set as the album's art in the
         # file stage (artchoice.on_import_task_files). None: leave art alone.
         self.pending_art: bytes | None = None
@@ -131,6 +142,13 @@ class WebImportSession(importer.ImportSession):
 
     # -- album matching -----------------------------------------------
     def choose_match(self, task: importer.ImportTask):
+        if self.query is not None:
+            _resolve_item_paths(task.items)
+            if self.reimport_set_fields is not None and not getattr(task, "_wi_keeps_fields", False):
+                from .reimport import keep_library_fields
+
+                keep_library_fields(task, self.reimport_set_fields)
+                task._wi_keeps_fields = True
         snapshot.capture_task(task, self)
         attempted_search_id = None
         if self._initial_search_id is not None:
@@ -141,6 +159,8 @@ class WebImportSession(importer.ImportSession):
         # mid-review "search_id" decision -- including the UI's
         # "Auto-search instead" fallback, which sends a blank ID that
         # runs the normal broad search.
+        if self.preset_search_id is None and attempted_search_id is None:
+            self._apple_match_items(task)
         if self.preset_search_id is not None:
             attempted_search_id, self.preset_search_id = self.preset_search_id, None
             self._lookup_candidates(task, attempted_search_id)
@@ -183,16 +203,31 @@ class WebImportSession(importer.ImportSession):
 
         return self._apply_decision_album(task, decision)
 
+    def _apple_match_items(self, task) -> None:
+        """Reimport: restrict the first search to the release(s) linked to
+        the album's Apple Music listing, once per album (a later "search
+        again" is the user's)."""
+        if not self.apple_match_items or id(task) in self._apple_match_tried:
+            return
+        self._apple_match_tried.add(id(task))
+        try:
+            match = itunes.musicbrainz_match_for_items(task.items)
+        except Exception:  # noqa: BLE001 -- never block a review on this
+            log.warning("webimport: Apple Music match failed", exc_info=True)
+            return
+        if match and match["release_ids"]:
+            self.preset_search_id = list(match["release_ids"])
+            self.matched_via = match
+
     def _add_purchase_candidates(self, task) -> dict | None:
         """Store purchases: add the likeliest digital releases of the album
         (see purchase.py) to the candidates and list the ones that look
         like the purchased release first. Returns {"store", "year",
         "added"} for the review payload, or None if not a purchase."""
-        if not self.paths or self.query is not None:
-            return None
         try:
-            folder = os.fsdecode(task.paths[0]) if task.paths else None  # beets keeps bytes
-            store = purchase.detect_store(task.items, folder)
+            reimport = self.query is not None
+            folder = os.fsdecode(task.paths[0]) if task.paths and not reimport else None  # beets keeps bytes
+            store = purchase.detect_store(task.items, folder, library=reimport)
             if store is None:
                 return None
             hints = purchase.album_hints(task.items)
@@ -280,6 +315,8 @@ class WebImportSession(importer.ImportSession):
 
     # -- singleton (track) matching ------------------------------------
     def choose_item(self, task: importer.SingletonImportTask):
+        if self.query is not None:
+            _resolve_item_paths([task.item])
         snapshot.capture_task(task, self)
         candidates_payload = [
             _serialize_item_match(i, m) for i, m in enumerate(task.candidates)
@@ -342,3 +379,22 @@ class WebImportSession(importer.ImportSession):
     # -- resume prompt: never interactively prompt; always resume -------
     def should_resume(self, path):
         return True
+
+
+def _resolve_item_paths(items) -> None:
+    """Reimport: make the task's item paths absolute again.
+
+    beets 2.x stores paths relative to the music dir and expands them when
+    a value is first read, using the reading thread's music dir. A
+    reimport's items come from a library query in the pipeline's first
+    stage, where that isn't always bound, so some arrive here relative.
+    Left so, nothing finds their files, and beets' duplicate check (task
+    paths vs. the library album's paths) takes the album for a duplicate
+    of itself."""
+    music_dir = beets_context.get_music_dir()
+    if not music_dir:
+        return
+    for item in items:
+        path = item.path
+        if path and not os.path.isabs(path):
+            item.path = beets_util.normpath(os.path.join(music_dir, path))

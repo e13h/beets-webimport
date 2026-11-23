@@ -4,6 +4,7 @@ album's art during import without touching the inbox folder."""
 from __future__ import annotations
 
 import os
+from pathlib import Path
 import struct
 import threading
 import time
@@ -302,3 +303,44 @@ def test_import_sets_chosen_art_and_leaves_inbox_alone(lib, tmp_path, create_wav
     with open(album.artpath, "rb") as f:
         assert f.read() == BIG
     assert sorted(os.listdir(folder)) == ["01.wav"]  # inbox untouched
+
+
+# -- reimports: the album is in the library ---------------------------------------
+
+@pytest.fixture
+def reimport_review(app_folder, lib, monkeypatch):
+    from beetsplug.webimport import queue
+
+    app, client, _ = app_folder
+    folder = Path(os.fsdecode(lib.directory)) / "X" / "Mulan"
+    folder.mkdir(parents=True)
+    (folder / "cover.jpg").write_bytes(SMALL)  # beets' copy of the current art: not an option
+    task = MagicMock(items=["item"])
+    asked = []
+    monkeypatch.setattr(itunes, "detect_ids_for_items",
+                        lambda items: asked.append(items) or {"collection_id": 1, "country": "us"})
+    monkeypatch.setattr(itunes, "lookup_album", lambda cid, cc: ({"collection_id": cid, "error": None}, BIG))
+    pr = queue.PendingReview("r1", "match", str(folder), {"candidates": [{"album_id": REL, "releasegroup_id": RG}]}, task=task)
+    submitted = []
+    monkeypatch.setattr(queue.ReviewManager, "get", lambda self, tid: pr)
+    monkeypatch.setattr(queue.ReviewManager, "submit_decision", lambda self, tid, d: submitted.append(d) or True)
+    return client, submitted, asked
+
+
+def test_reimport_offers_itunes_art(reimport_review, caa):
+    client, submitted, asked = reimport_review
+    body = client.get("/api/review/r1/art_options").get_json()
+    assert body["itunes"]["width"] == 1500 and body["keep"]["width"] == 600
+    assert body["folder"] is None
+    client.post("/api/review/r1/decide", json={"action": "select", "index": 0})  # default: iTunes art
+    assert submitted[-1]["_art"] == BIG
+    assert asked == [["item"]]  # IDs read once per review
+
+
+def test_review_art_options_for_an_inbox_folder(app_folder, monkeypatch):
+    from beetsplug.webimport import queue
+
+    app, client, folder = app_folder
+    monkeypatch.setattr(queue.ReviewManager, "get", lambda self, tid: queue.PendingReview(tid, "match", str(folder), {}))
+    body = client.get("/api/review/t9/art_options").get_json()
+    assert body["keep"]["width"] == 600 and body["itunes"] is None

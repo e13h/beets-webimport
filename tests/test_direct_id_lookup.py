@@ -12,6 +12,7 @@ import time
 
 import pytest
 from beets import config, metadata_plugins
+from beets import context as beets_context
 
 from beetsplug.webimport.queue import ReviewManager
 from beetsplug.webimport.session import WebImportSession
@@ -177,7 +178,7 @@ def test_purchase_adds_digital_release_and_lists_it_first(lib, album_dir, lookup
                         lambda *a, **k: (lookups.__setitem__("broad", lookups["broad"] + 1), iter(broad))[1])
     monkeypatch.setattr(metadata_plugins, "albums_for_ids",
                         lambda ids: (lookups["ids"].append(list(ids)), iter([digital[i] for i in ids if i in digital]))[1])
-    def detect_store(items, folder):
+    def detect_store(items, folder, library=False):
         assert isinstance(folder, str)  # task.paths holds bytes
         return "amazon"
 
@@ -207,3 +208,125 @@ def test_user_id_skips_purchase_search(lib, album_dir, lookups, monkeypatch):
 
     monkeypatch.setattr(purchase, "detect_store", lambda items, folder: pytest.fail("not consulted"))
     _run_import(lib, album_dir, MBID, [{"action": "skip"}])
+
+
+# -- reimport: suggest what a fresh import of the store download would --------
+
+@pytest.fixture
+def library_album(lib, tmp_path, create_wav_file):
+    from beets.library import Item
+
+    path = tmp_path / "music" / "X" / "Mulan" / "01 Track.wav"
+    create_wav_file(path)
+    item = Item.from_path(str(path))
+    item.update({"artist": "X", "albumartist": "X", "album": "Mulan", "title": "Track", "track": 1})
+    lib.add(item)
+    return lib.add_album([item])
+
+
+def _run_reimport(lib, album, decisions, apple=True):
+    rm = ReviewManager()
+    session = WebImportSession(lib, None, None, f"album_id:{album.id}", rm, None)
+    session.apple_match_items = apple
+    payloads = []
+    t = threading.Thread(target=session.run, daemon=True)
+    t.start()
+    deadline = time.monotonic() + 10
+    while t.is_alive() and time.monotonic() < deadline:
+        for pr in rm.list_pending():
+            if decisions and pr["task_id"] not in {p["task_id"] for p in payloads}:
+                payloads.append(pr)
+                rm.submit_decision(pr["task_id"], decisions.pop(0))
+        time.sleep(0.02)
+    t.join(timeout=1)
+    assert not t.is_alive()
+    return [p["payload"] for p in payloads]
+
+
+def test_reimport_starts_from_the_apple_linked_release(lib, library_album, lookups, monkeypatch):
+    from beets.autotag.hooks import AlbumInfo, TrackInfo
+
+    from beetsplug.webimport import itunes
+
+    seen = []
+    monkeypatch.setattr(itunes, "musicbrainz_match_for_items",
+                        lambda items: (seen.append([i.title for i in items]), VIA)[1])
+    album = AlbumInfo(tracks=[TrackInfo(title="Track", track_id="t1")], album="Mulan",
+                      album_id=DIGITAL, artist="X", artist_id="a1", data_source="MusicBrainz")
+    monkeypatch.setattr(metadata_plugins, "albums_for_ids",
+                        lambda ids: (lookups["ids"].append(list(ids)), iter([album]))[1])
+    # "Search again" (blank ID) after the suggestion runs a normal search,
+    # without matching the Apple listing a second time.
+    payloads = _run_reimport(lib, library_album, [{"action": "search_id", "search_id": ""}, {"action": "skip"}])
+    assert seen == [["Track"]]
+    assert lookups["ids"] == [[DIGITAL]]
+    assert payloads[0]["matched_via"] == VIA
+    assert [c["album_id"] for c in payloads[0]["candidates"]] == [DIGITAL]
+    assert "matched_via" not in payloads[1]
+
+
+def test_reimport_without_apple_match_searches_normally(lib, library_album, lookups, monkeypatch):
+    from beetsplug.webimport import itunes, purchase
+
+    monkeypatch.setattr(itunes, "musicbrainz_match_for_items", lambda items: pytest.fail("not asked"))
+    monkeypatch.setattr(purchase, "detect_store", lambda items, folder, library=False: None)
+    payloads = _run_reimport(lib, library_album, [{"action": "skip"}], apple=False)
+    assert lookups["ids"] == [] and "matched_via" not in payloads[0]
+
+
+def test_reimport_of_a_purchase_adds_digital_releases(lib, library_album, lookups, monkeypatch):
+    from beetsplug.webimport import itunes, purchase
+
+    calls = []
+    monkeypatch.setattr(itunes, "musicbrainz_match_for_items", lambda items: None)
+    monkeypatch.setattr(purchase, "detect_store",
+                        lambda items, folder, library=False: calls.append((folder, library)) or "itunes")
+    monkeypatch.setattr(purchase, "album_hints", lambda items: {"album": "Mulan", "artist": "X", "year": 1998, "tracktotal": 1})
+    monkeypatch.setattr(purchase, "digital_release_ids", lambda hints, exclude=(): [])
+    payloads = _run_reimport(lib, library_album, [{"action": "skip"}])
+    assert calls == [(None, True)]
+    assert payloads[0]["purchase"]["store"] == "itunes"
+
+
+@pytest.mark.parametrize("explicit, expected", [({}, "kids"), ({"navidrome_library": "main"}, "main")])
+def test_reimport_keeps_the_albums_fields_over_config_defaults(lib, library_album, lookups, monkeypatch, explicit, expected):
+    """`import.set_fields` (homelab: navidrome_library: unassigned) are
+    defaults for new imports; a reimport keeps what the album has unless
+    the Reimport dialog sets it."""
+    from beetsplug.webimport import itunes, purchase
+    from beetsplug.webimport.reimport import _temporary_import_config
+
+    monkeypatch.setattr(itunes, "musicbrainz_match_for_items", lambda items: None)
+    monkeypatch.setattr(purchase, "detect_store", lambda items, folder, library=False: None)
+    config["import"]["set_fields"].set({"navidrome_library": "unassigned", "comments": "new"})
+    library_album["navidrome_library"] = "kids"
+    library_album.store()
+    for item in library_album.items():
+        item["navidrome_library"] = "kids"
+        item.store()
+
+    rm = ReviewManager()
+    with _temporary_import_config(False, explicit):
+        session = WebImportSession(lib, None, None, f"album_id:{library_album.id}", rm, None)
+        session.reimport_set_fields = explicit
+
+        def run():  # as the server's worker threads do
+            beets_context.set_music_dir(lib.directory)
+            session.run()
+
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
+        deadline = time.monotonic() + 10
+        kinds = []
+        while t.is_alive() and time.monotonic() < deadline:
+            for pr in rm.list_pending():
+                kinds.append(pr["kind"])
+                rm.submit_decision(pr["task_id"], {"action": "asis"})
+            time.sleep(0.02)
+        t.join(timeout=1)
+    assert not t.is_alive()
+    assert kinds == ["match"]  # no false "duplicate of itself"
+    album = next(iter(lib.albums()))
+    assert album["navidrome_library"] == expected
+    assert [i["navidrome_library"] for i in album.items()] == [expected]
+    assert [i.comments for i in album.items()] == ["new"]  # a default the album didn't have still applies

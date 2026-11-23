@@ -19,6 +19,7 @@ links to MusicBrainz.
 """
 from __future__ import annotations
 
+import io
 import os
 import re
 import threading
@@ -81,6 +82,14 @@ def _first_int(value) -> int | None:
         return None
 
 
+def _ids_from_tags(tags) -> dict | None:
+    collection_id = _first_int(tags.get("plID")) if tags else None
+    if not collection_id:
+        return None
+    storefront = _first_int(tags.get("sfID"))
+    return {"collection_id": collection_id, "country": STOREFRONTS.get(storefront)}
+
+
 def detect_ids(folder: Path) -> dict | None:
     """{"collection_id", "country"} from the first MP4 file in `folder`
     that carries an iTunes collection ID, else None."""
@@ -90,16 +99,59 @@ def detect_ids(folder: Path) -> dict | None:
     except OSError:
         return None
     for name in names:
-        if not name.lower().endswith(MP4_EXTS):
-            continue
-        tags = _read_mp4_tags(folder / name)
-        if not tags:
-            continue
-        collection_id = _first_int(tags.get("plID"))
-        if collection_id:
-            storefront = _first_int(tags.get("sfID"))
-            return {"collection_id": collection_id, "country": STOREFRONTS.get(storefront)}
+        if name.lower().endswith(MP4_EXTS):
+            ids = _ids_from_tags(_read_mp4_tags(folder / name))
+            if ids:
+                return ids
     return None
+
+
+def detect_ids_for_items(items) -> dict | None:
+    """Like detect_ids, for library items: their files first, then their
+    stored originals (ADR-0014), since an import may have rewritten the
+    files' tags and dropped the store IDs."""
+    from . import originals
+
+    items = list(items)
+    for item in items:
+        path = _item_path(item)
+        if path.lower().endswith(MP4_EXTS):
+            ids = _ids_from_tags(_read_mp4_tags(Path(path)))
+            if ids:
+                return ids
+    for item in items:
+        record = originals.load(item)
+        if not record or not record.get("name", "").lower().endswith(MP4_EXTS):
+            continue
+        try:
+            data = originals.rebuild(record, _item_path(item))
+        except Exception:  # noqa: BLE001 -- missing or changed: try the next track
+            continue
+        ids = _ids_from_tags(_read_mp4_bytes(data))
+        if ids:
+            return ids
+    return None
+
+
+def _item_path(item) -> str:
+    """The item's file as an absolute path. Items a reimport's import task
+    holds can keep the library-relative path (beets 2.x) when the pipeline
+    loaded them on a thread without the music dir bound."""
+    from beets import context
+
+    path = os.fsdecode(item.path)
+    if not os.path.isabs(path):
+        path = os.path.join(os.fsdecode(context.get_music_dir()), path)
+    return path
+
+
+def _read_mp4_bytes(data: bytes) -> dict | None:
+    from mutagen.mp4 import MP4
+
+    try:
+        return MP4(io.BytesIO(data)).tags or None
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def full_res_url(artwork_url: str) -> str:
@@ -215,7 +267,15 @@ def musicbrainz_match_for_dir(folder: Path) -> dict | None:
     iTunes purchase folder, or None if it isn't one or MusicBrainz
     couldn't be reached. `release_ids` is empty when no release links the
     album."""
-    ids = detect_ids(folder)
+    return musicbrainz_match(detect_ids(folder))
+
+
+def musicbrainz_match_for_items(items) -> dict | None:
+    """musicbrainz_match_for_dir for library items (a reimport)."""
+    return musicbrainz_match(detect_ids_for_items(items))
+
+
+def musicbrainz_match(ids: dict | None) -> dict | None:
     if ids is None:
         return None
     info, _ = lookup_album(ids["collection_id"], ids["country"])  # cached; gives the slugged link

@@ -352,6 +352,34 @@ def create_app(lib, wi_config, plugin):
         return target
 
     # -- album art choice (see artchoice.py) -----------------------------
+    art_sources: dict[str, artchoice.ArtSource] = {}  # task_id -> source (iTunes IDs read once)
+    art_sources_lock = threading.Lock()
+
+    def _art_source(pr) -> artchoice.ArtSource | None:
+        """An inbox import's folder, or a reimport's library album."""
+        if pr is None:
+            return None
+        with art_sources_lock:
+            if pr.task_id in art_sources:
+                return art_sources[pr.task_id]
+        folder = _inbox_folder(pr.path)
+        if folder is not None:
+            source = artchoice.ArtSource.inbox(folder)
+        elif pr.kind == "match" and pr.task is not None and _in_library(pr.path):
+            source = artchoice.ArtSource.library(Path(pr.path), pr.task.items)
+        else:
+            return None
+        with art_sources_lock:
+            if len(art_sources) > 200:
+                art_sources.clear()
+            art_sources[pr.task_id] = source
+        return source
+
+    def _in_library(raw_path: str) -> bool:
+        base = Path(os.fsdecode(lib.directory)).resolve()
+        target = Path(raw_path).resolve()
+        return base in target.parents and target.is_dir()
+
     def _candidate_ids(pr, index) -> tuple | None:
         try:
             c = pr.payload["candidates"][index]
@@ -368,16 +396,16 @@ def create_app(lib, wi_config, plugin):
             # Resolve the art choice to image bytes now, so a missing or
             # unreachable image is reported before anything is applied.
             pr = review_manager.get(task_id)
-            folder = _inbox_folder(pr.path) if pr else None
-            if folder is not None:
+            source = _art_source(pr)
+            if source is not None:
                 ids = _candidate_ids(pr, decision.get("index")) if action == "select" else None
                 choice = decision.get("art_choice")
                 try:
                     if not choice:
                         choice = artchoice.default_choice(
-                            artchoice.inbox_options(folder),
+                            artchoice.options(source),
                             artchoice.candidate_art(*ids) if ids else None)
-                    decision["_art"] = artchoice.chosen_image(choice, folder, ids)
+                    decision["_art"] = artchoice.chosen_image(choice, source, ids)
                 except Exception as exc:  # noqa: BLE001 -- don't apply with the wrong art
                     log.exception("webimport: art choice %r failed", choice)
                     return jsonify({"ok": False, "error": f"Couldn't use the chosen art: {exc}"}), 502
@@ -399,6 +427,15 @@ def create_app(lib, wi_config, plugin):
         except ValueError:
             return jsonify({"error": "bad candidate index"}), 400
         return jsonify(tagpreview.preview(pr.task, index))
+
+    @app.get("/api/review/<task_id>/art_options")
+    @_safe
+    def api_review_art_options(task_id):
+        """Art options for a review: an inbox import or a reimport."""
+        source = _art_source(review_manager.get(task_id))
+        if source is None:
+            return jsonify({"keep": None, "folder": None, "itunes": None})
+        return jsonify(artchoice.options(source))
 
     @app.get("/api/inbox/art_options")
     @_safe
@@ -715,6 +752,7 @@ def create_app(lib, wi_config, plugin):
                 from_scratch=from_scratch,
                 set_fields=set_fields,
                 mover=mover,
+                apple_music_match=wi_config["apple_music_match"].get(bool),
             )
 
         pool.submit(f"reimport:{','.join(map(str, album_ids))}", lambda _p: _job())
