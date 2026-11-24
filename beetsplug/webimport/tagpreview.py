@@ -67,9 +67,16 @@ def _other_tags(item) -> dict:
         return {}
 
 
-def _set_fields() -> list[dict]:
-    """import.set_fields entries (templates shown as configured)."""
+def _set_fields(task) -> list[dict]:
+    """import.set_fields entries (templates shown as configured); for a
+    reimport, the fields it will set (reimport.fields_to_set)."""
     try:
+        reimport = getattr(task, "_wi_reimport", None)
+        if reimport is not None:
+            from .reimport import fields_to_set
+
+            album = task.items[0] if task.items else {}
+            return [{"field": f, "value": v} for f, v in fields_to_set(album, reimport["set_fields"]).items()]
         return [{"field": f, "value": str(v.get())} for f, v in config["import"]["set_fields"].items()]
     except Exception:  # noqa: BLE001
         return []
@@ -84,7 +91,9 @@ def _file_name(item) -> str:
 def preview(task, index: int) -> dict:
     """Tag changes for candidate `index` of a pending album review."""
     match = task.candidates[index]
-    from_scratch = bool(config["import"]["from_scratch"].get())
+    reimport = getattr(task, "_wi_reimport", None)
+    from_scratch = (reimport["from_scratch"] if reimport is not None
+                    else bool(config["import"]["from_scratch"].get()))
     fields = tag_fields()
 
     tracks = []
@@ -120,7 +129,7 @@ def preview(task, index: int) -> dict:
         "from_scratch": from_scratch,
         "tracks": tracks,
         "summary": _summary(tracks),
-        "set_fields": _set_fields(),
+        "set_fields": _set_fields(task),
     }
 
 

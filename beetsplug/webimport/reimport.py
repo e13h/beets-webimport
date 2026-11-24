@@ -2,10 +2,12 @@
 
     beet import -L -S <mbid> --from-scratch --set navidrome_library=kids album:aladdin
 
-Rather than reimplementing metadata-clearing/set-fields logic, this
-temporarily flips beets' own `import.from_scratch` / `import.set_fields`
-config for the duration of the reimport session, then restores the prior
-values -- so it applies via the exact same code path the CLI flags use.
+The `--from-scratch` and `--set` equivalents are given to the session's
+own tasks (`apply_reimport_settings`), not written to beets' global import
+config: beets reads both only while applying, and the global config is
+shared by every session. So a reimport searches and waits for review in
+parallel with other imports and takes the Apply Lock only to apply, like
+an inbox import (ADR-0005, revised).
 
 When every track of the album has a stored original (ADR-0014), the
 reimport starts from the original download's tags instead of the current
@@ -31,7 +33,6 @@ from __future__ import annotations
 
 import logging
 import os
-from contextlib import contextmanager
 
 import beets
 
@@ -46,22 +47,6 @@ def _build_query(album_ids: list[int]) -> str:
     matches it as a substring there (album_id:6 also found 16, 26, 36...).
     beets' top-level `,` is OR."""
     return " , ".join(f"id:{int(aid)}" for aid in album_ids)
-
-
-@contextmanager
-def _temporary_import_config(from_scratch: bool, set_fields: dict | None):
-    prev_from_scratch = beets.config["import"]["from_scratch"].get(bool)
-    prev_set_fields = beets.config["import"]["set_fields"].get(dict)
-    try:
-        beets.config["import"]["from_scratch"].set(from_scratch)
-        if set_fields:
-            merged = dict(prev_set_fields or {})
-            merged.update(set_fields)
-            beets.config["import"]["set_fields"].set(merged)
-        yield
-    finally:
-        beets.config["import"]["from_scratch"].set(prev_from_scratch)
-        beets.config["import"]["set_fields"].set(prev_set_fields)
 
 
 def run_reimport(
@@ -85,43 +70,35 @@ def run_reimport(
     # them again by their paths, which don't change while files are held.
     paths = [item.path for aid in album_ids for item in lib.items(f"album_id:{aid}")]
 
+    session = WebImportSession(
+        lib,
+        loghandler,
+        paths=None,
+        query=query_str,
+        review_manager=review_manager,
+        config=None,
+        apply_lock=apply_lock,
+    )
+    session.hold_files = two_phase
+    if search_id:
+        session.preset_search_id = search_id  # consumed by choose_match on first pass
+    else:
+        # As for an inbox folder: iTunes purchases start from the
+        # release(s) linked to their Apple Music listing.
+        session.apple_match_items = apple_music_match
+    session.reimport_set_fields = dict(set_fields or {})
+    session.reimport_from_scratch = bool(from_scratch)
+    # Only these files may be reimported, whatever the query finds.
+    session.reimport_paths = {bytes(p) for p in paths}
+    session.start_from_originals = True
     from . import activity
 
-    lock_acquired = False
-    if apply_lock is not None:
-        if not apply_lock.acquire(blocking=False):
-            activity.step("Waiting for another import to finish applying")
-            apply_lock.acquire()
-        lock_acquired = True
     activity.step("Loading the album from the library")
-
     try:
-        with _temporary_import_config(from_scratch, set_fields):
-            session = WebImportSession(
-                lib,
-                loghandler,
-                paths=None,
-                query=query_str,
-                review_manager=review_manager,
-                config=None,
-                apply_lock=apply_lock,
-            )
-            if lock_acquired:
-                session._lock_acquired = True
-            session.hold_files = two_phase
-            if search_id:
-                session.preset_search_id = search_id  # consumed by choose_match on first pass
-            else:
-                # As for an inbox folder: iTunes purchases start from the
-                # release(s) linked to their Apple Music listing.
-                session.apple_match_items = apple_music_match
-            session.reimport_set_fields = dict(set_fields or {})
-            # Only these files may be reimported, whatever the query finds.
-            session.reimport_paths = {bytes(p) for p in paths}
-            session.start_from_originals = True
-            session.run()
+        session.run()
     finally:
-        if lock_acquired:
+        # The session takes the Apply Lock when a choice is applied.
+        if session._lock_acquired:
             apply_lock.release()
     if two_phase:
         hand_to_mover(lib, mover, paths)
@@ -141,45 +118,56 @@ def hand_to_mover(lib, mover, paths) -> None:
             mover.relocate_item(item, wrote_tags=True)
 
 
-def keep_library_fields(task, explicit: dict) -> None:
-    """Make `task.set_fields` apply only the fields the user asked for.
+def fields_to_set(obj, explicit: dict) -> dict:
+    """What a reimport sets on an album or track (`--set` equivalent).
 
     The config's `import.set_fields` are defaults for new imports (the
-    homelab sets `navidrome_library: unassigned`). beets applies them to a
-    reimport too, right after copying the replaced album's fields onto the
-    new rows (`reimport_metadata`), which would reset every album's
-    Listening Group and move its files. So any field the user didn't set
-    in the Reimport dialog goes back to what the album and tracks had."""
-    if not getattr(task, "is_album", False):
+    homelab sets `navidrome_library: unassigned`); a reimport applies them
+    only where the album has no value, so it keeps its Listening Group.
+    The fields set in the Reimport dialog always apply."""
+    out = {}
+    for field, view in beets.config["import"]["set_fields"].items():
+        if field not in explicit and obj.get(field) in (None, ""):
+            out[field] = str(view.get())
+    out.update({k: str(v) for k, v in explicit.items()})
+    return out
+
+
+def apply_reimport_settings(task, explicit: dict, from_scratch: bool) -> None:
+    """Give this reimport's task its settings instead of beets' global
+    import config (which beets reads at apply time, and which every
+    parallel session shares):
+
+    - `from_scratch`: passed to the match's apply_metadata;
+    - `set_fields`: applied right after `task.add`, which has copied the
+      replaced album's fields onto the new rows (`reimport_metadata`).
+      beets' own `task.set_fields` (global config) is switched off."""
+    if not getattr(task, "is_album", False) or getattr(task, "_wi_reimport", None) is not None:
         return
-    original = task.set_fields
+    task._wi_reimport = {"set_fields": dict(explicit), "from_scratch": bool(from_scratch)}
 
-    def set_fields(lib):
+    def apply_metadata():
+        if task.match:
+            task.match.apply_metadata(from_scratch=bool(from_scratch))
+
+    original_add = task.add
+
+    def add(lib):
+        original_add(lib)
         album, items = task.album, list(task.imported_items())
-        keys = [k for k in beets.config["import"]["set_fields"].keys() if k not in explicit]
-        before = ({k: album.get(k) for k in keys} if album is not None else {},
-                  [{k: item.get(k) for k in keys} for item in items])
-        original(lib)
-        album_vals, item_vals = before
         with lib.transaction():
-            for item, vals in zip(items, item_vals):
-                _restore(item, vals)
-            if album is not None:
-                _restore(album, album_vals)
+            for obj in [*items, album]:
+                if obj is None:
+                    continue
+                values = fields_to_set(obj, explicit)
+                for field, value in values.items():
+                    obj.set_parse(field, format(obj, value))
+                if values:
+                    obj.store()
 
-    task.set_fields = set_fields
-
-
-def _restore(obj, values: dict) -> None:
-    changed = False
-    for key, value in values.items():
-        if value is None or value == "":
-            continue  # the album didn't have it: the default applies
-        if obj.get(key) != value:
-            obj[key] = value
-            changed = True
-    if changed:
-        obj.store()
+    task.apply_metadata = apply_metadata
+    task.add = add
+    task.set_fields = lambda lib: None
 
 
 def restore_original_tags(items, music_dir) -> bool:

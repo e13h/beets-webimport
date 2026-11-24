@@ -295,7 +295,6 @@ def test_reimport_keeps_the_albums_fields_over_config_defaults(lib, library_albu
     defaults for new imports; a reimport keeps what the album has unless
     the Reimport dialog sets it."""
     from beetsplug.webimport import itunes, purchase
-    from beetsplug.webimport.reimport import _temporary_import_config
 
     monkeypatch.setattr(itunes, "musicbrainz_match_for_items", lambda items: None)
     monkeypatch.setattr(purchase, "detect_store", lambda items, folder, library=False: None)
@@ -307,24 +306,23 @@ def test_reimport_keeps_the_albums_fields_over_config_defaults(lib, library_albu
         item.store()
 
     rm = ReviewManager()
-    with _temporary_import_config(False, explicit):
-        session = WebImportSession(lib, None, None, f"album_id:{library_album.id}", rm, None)
-        session.reimport_set_fields = explicit
+    session = WebImportSession(lib, None, None, f"album_id:{library_album.id}", rm, None)
+    session.reimport_set_fields = explicit
 
-        def run():  # as the server's worker threads do
-            beets_context.set_music_dir(lib.directory)
-            session.run()
+    def run():  # as the server's worker threads do
+        beets_context.set_music_dir(lib.directory)
+        session.run()
 
-        t = threading.Thread(target=run, daemon=True)
-        t.start()
-        deadline = time.monotonic() + 10
-        kinds = []
-        while t.is_alive() and time.monotonic() < deadline:
-            for pr in rm.list_pending():
-                kinds.append(pr["kind"])
-                rm.submit_decision(pr["task_id"], {"action": "asis"})
-            time.sleep(0.02)
-        t.join(timeout=1)
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    deadline = time.monotonic() + 10
+    kinds = []
+    while t.is_alive() and time.monotonic() < deadline:
+        for pr in rm.list_pending():
+            kinds.append(pr["kind"])
+            rm.submit_decision(pr["task_id"], {"action": "asis"})
+        time.sleep(0.02)
+    t.join(timeout=1)
     assert not t.is_alive()
     assert kinds == ["match"]  # no false "duplicate of itself"
     album = next(iter(lib.albums()))
@@ -469,3 +467,100 @@ def test_reimport_query_matches_album_ids_exactly(lib, thirteen_albums):
 
     ids = [a.id for a in lib.albums(_build_query([2, 3]))]
     assert sorted(ids) == [2, 3]
+
+
+def _drive(rm, threads, decide, timeout=10):
+    """Answer reviews with decide(pending list) until the threads end."""
+    deadline = time.monotonic() + timeout
+    answered = set()
+    while any(t.is_alive() for t in threads) and time.monotonic() < deadline:
+        pending = [p for p in rm.list_pending() if p["task_id"] not in answered]
+        for task_id, decision in decide(pending):
+            answered.add(task_id)
+            rm.submit_decision(task_id, decision)
+        time.sleep(0.02)
+    for t in threads:
+        t.join(timeout=1)
+    assert not any(t.is_alive() for t in threads)
+
+
+def test_two_reimports_wait_for_review_at_the_same_time(lib, thirteen_albums, lookups, monkeypatch):
+    """A reimport takes the Apply Lock only to apply, so several can be
+    ready for review at once (it used to hold it for the whole session)."""
+    from beetsplug.webimport import itunes, purchase, reimport
+
+    monkeypatch.setattr(itunes, "musicbrainz_match_for_items", lambda items: None)
+    monkeypatch.setattr(purchase, "detect_store", lambda items, folder, library=False: None)
+    rm, apply_lock = ReviewManager(), threading.Lock()
+
+    def run(aid):
+        beets_context.set_music_dir(lib.directory)
+        reimport.run_reimport(lib, rm, None, [aid], apply_lock=apply_lock, set_fields={"navidrome_library": "kids"})
+
+    threads = [threading.Thread(target=run, args=(a.id,), daemon=True) for a in thirteen_albums[:2]]
+    for t in threads:
+        t.start()
+    seen = {}
+
+    def decide(pending):
+        for p in pending:
+            seen[p["task_id"]] = p
+        if len(seen) < 2:
+            return []
+        seen["lock_free_with_both_in_review"] = not apply_lock.locked()
+        return [(tid, {"action": "skip"}) for tid in list(seen) if tid != "lock_free_with_both_in_review"]
+
+    _drive(rm, threads, decide)
+    assert seen.get("lock_free_with_both_in_review") is True
+    assert not apply_lock.locked()
+
+
+def test_reimport_settings_stay_out_of_the_global_config(lib, library_album, monkeypatch):
+    """from_scratch and the dialog's fields apply to the reimport's task
+    only; beets' global import config, read by parallel sessions, is never
+    changed."""
+    from beets.autotag.hooks import AlbumInfo, TrackInfo
+
+    from beetsplug.webimport import itunes, purchase, reimport, tagpreview
+
+    monkeypatch.setattr(itunes, "musicbrainz_match_for_items", lambda items: None)
+    monkeypatch.setattr(purchase, "detect_store", lambda items, folder, library=False: None)
+    info = AlbumInfo(tracks=[TrackInfo(title="Track", track_id="t1", index=1, length=1.0)], album="Mulan",
+                     album_id="r1", artist="X", artist_id="a1", data_source="MusicBrainz")
+    monkeypatch.setattr(metadata_plugins, "candidates", lambda *a, **kw: iter([info]))
+    monkeypatch.setattr(metadata_plugins, "albums_for_ids", lambda ids: iter(()))
+    config["import"]["set_fields"].set({"navidrome_library": "unassigned"})
+    for item in library_album.items():
+        item.comments = "from the old tags"
+        item.store()
+
+    rm, apply_lock = ReviewManager(), threading.Lock()
+    during = {}
+
+    def run():
+        beets_context.set_music_dir(lib.directory)
+        reimport.run_reimport(lib, rm, None, [library_album.id], apply_lock=apply_lock,
+                              from_scratch=True, set_fields={"navidrome_library": "kids"})
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+
+    def decide(pending):
+        out = []
+        for p in pending:
+            during["from_scratch"] = config["import"]["from_scratch"].get(bool)
+            during["set_fields"] = config["import"]["set_fields"].get(dict)
+            pv = tagpreview.preview(rm.get(p["task_id"]).task, 0)
+            during["preview"] = (pv["from_scratch"], pv["set_fields"])
+            out.append((p["task_id"], {"action": "select", "index": 0}))
+        return out
+
+    _drive(rm, [t], decide)
+    assert during["from_scratch"] is False
+    assert during["set_fields"] == {"navidrome_library": "unassigned"}
+    assert during["preview"] == (True, [{"field": "navidrome_library", "value": "kids"}])
+    album = next(iter(lib.albums()))
+    assert album.mb_albumid == "r1"
+    assert album["navidrome_library"] == "kids"
+    assert [i.comments for i in album.items()] == [""]  # cleared: from scratch
+    assert not apply_lock.locked()

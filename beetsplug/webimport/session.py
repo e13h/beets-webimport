@@ -97,6 +97,7 @@ class WebImportSession(importer.ImportSession):
         # `import.set_fields` defaults don't overwrite what the album has
         # (reimport.keep_library_fields). None: not a reimport.
         self.reimport_set_fields: dict | None = None
+        self.reimport_from_scratch = False
         # Reimport: start from the stored originals' tags where every
         # track has one (reimport.on_task_created).
         self.start_from_originals = False
@@ -182,11 +183,10 @@ class WebImportSession(importer.ImportSession):
                     log.warning("webimport: reimport query found an album that wasn't requested (%s); skipped",
                                 displayable_path(stray[0]))
                     return Action.SKIP
-            if self.reimport_set_fields is not None and not getattr(task, "_wi_keeps_fields", False):
-                from .reimport import keep_library_fields
+            if self.reimport_set_fields is not None:
+                from .reimport import apply_reimport_settings
 
-                keep_library_fields(task, self.reimport_set_fields)
-                task._wi_keeps_fields = True
+                apply_reimport_settings(task, self.reimport_set_fields, self.reimport_from_scratch)
         snapshot.capture_task(task, self)
         attempted_search_id = None
         if self._initial_search_id is not None:
